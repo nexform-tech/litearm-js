@@ -414,6 +414,47 @@ export class Arm {
     });
   }
 
+  // ── Hand control (灵巧手) ─────────────────────────────────────────────
+
+  /** Connect to the dexterous hand. */
+  async handConnect(handType = "right", handJoint = "L10", canIface = "can0"): Promise<Record<string, unknown>> {
+    return this.rpc('hand_connect', { hand_type: handType, hand_joint: handJoint, can_iface: canIface });
+  }
+
+  /** Disconnect the hand. */
+  async handDisconnect(): Promise<Record<string, unknown>> { return this.rpc('hand_disconnect'); }
+
+  /** Open the hand. */
+  async handOpen(speed?: number[]): Promise<Record<string, unknown>> { return this.rpc('hand_open', { speed }); }
+
+  /** Close the hand. */
+  async handClose(speed?: number[]): Promise<Record<string, unknown>> { return this.rpc('hand_close', { speed }); }
+
+  /** Set a named gesture. */
+  async handSetGesture(gesture: string, speed?: number[]): Promise<Record<string, unknown>> {
+    return this.rpc('hand_set_gesture', { gesture, speed });
+  }
+
+  /** Move fingers to specific positions. */
+  async handFingerMove(pose: number[], speed?: number[]): Promise<Record<string, unknown>> {
+    return this.rpc('hand_finger_move', { pose, speed });
+  }
+
+  /** Set finger speed. */
+  async handSetSpeed(speed: number[]): Promise<Record<string, unknown>> { return this.rpc('hand_set_speed', { speed }); }
+
+  /** Set finger torque. */
+  async handSetTorque(torque: number[]): Promise<Record<string, unknown>> { return this.rpc('hand_set_torque', { torque }); }
+
+  /** Get hand state. */
+  async handGetState(): Promise<Record<string, unknown>> { return this.rpc('hand_get_state'); }
+
+  /** Clear hand faults. */
+  async handClearFaults(): Promise<Record<string, unknown>> { return this.rpc('hand_clear_faults'); }
+
+  /** List available gestures. */
+  async handListGestures(): Promise<Record<string, unknown>> { return this.rpc('hand_list_gestures'); }
+
   // ── State reading ───────────────────────────────────────────────────────
 
   /**

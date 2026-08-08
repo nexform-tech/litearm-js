@@ -299,6 +299,47 @@ export class Arm {
   /** Clear estop and return to ready. */
   async clearStop(): Promise<void> { return this._rpc("clear_stop"); }
 
+  // ── Hand control (灵巧手) ─────────────────────────────────────────────
+
+  /** Connect to the dexterous hand. */
+  async handConnect(handType = "right", handJoint = "L10", canIface = "can0"): Promise<Record<string, unknown>> {
+    return this._rpc("hand_connect", { hand_type: handType, hand_joint: handJoint, can_iface: canIface });
+  }
+
+  /** Disconnect the hand. */
+  async handDisconnect(): Promise<Record<string, unknown>> { return this._rpc("hand_disconnect"); }
+
+  /** Open the hand (all fingers to 0). */
+  async handOpen(speed?: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_open", { speed }); }
+
+  /** Close the hand (all fingers to max). */
+  async handClose(speed?: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_close", { speed }); }
+
+  /** Set a named gesture (open/close/pinch/point/ok/rock/peace/fist/thumb_up). */
+  async handSetGesture(gesture: string, speed?: number[]): Promise<Record<string, unknown>> {
+    return this._rpc("hand_set_gesture", { gesture, speed });
+  }
+
+  /** Move fingers to specific positions (0-255 per joint). */
+  async handFingerMove(pose: number[], speed?: number[]): Promise<Record<string, unknown>> {
+    return this._rpc("hand_finger_move", { pose, speed });
+  }
+
+  /** Set finger speed (0-255). */
+  async handSetSpeed(speed: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_set_speed", { speed }); }
+
+  /** Set finger torque (0-255). */
+  async handSetTorque(torque: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_set_torque", { torque }); }
+
+  /** Get hand state (positions, speeds, torques, temps, faults). */
+  async handGetState(): Promise<Record<string, unknown>> { return this._rpc("hand_get_state"); }
+
+  /** Clear hand faults. */
+  async handClearFaults(): Promise<Record<string, unknown>> { return this._rpc("hand_clear_faults"); }
+
+  /** List available gestures. */
+  async handListGestures(): Promise<Record<string, unknown>> { return this._rpc("hand_list_gestures"); }
+
   // ── Parameter tuning ──────────────────────────────────────────────────
 
   /** Set PD gains. */

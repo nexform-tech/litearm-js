@@ -162,6 +162,28 @@ input[type=number] { width: 80px; text-align: center; }
     </div>
   </div>
 
+  <!-- ── 灵巧手控制 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🤚 灵巧手控制 (Hand)</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <select id="htype"><option value="right" selected>右手</option><option value="left">左手</option></select>
+        <select id="hj"><option value="L10" selected>L10</option><option value="L6">L6</option><option value="L7">L7</option><option value="L20">L20</option><option value="L25">L25</option><option value="G20">G20</option></select>
+        <button class="btn btn-c" onclick="doHandConnect()">连接手</button>
+        <button class="btn btn-s" onclick="doHandDisconnect()">断开</button>
+        <span id="hs" style="font-size:11px;color:#888;margin-left:8px">状态: --</span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-m" onclick="doHandOpen()">🖐 张开</button>
+        <button class="btn btn-m" onclick="doHandClose()">✊ 闭合</button>
+        <select id="hg" onchange="doHandGesture()"><option value="">-- 手势 --</option></select>
+        <button class="btn btn-p" onclick="doHandGetState()">刷新状态</button>
+        <button class="btn btn-d" onclick="doHandClearFaults()">清故障</button>
+      </div>
+      <div id="hinfo" style="margin-top:6px;font-size:11px"></div>
+    </div>
+  </div>
+
   <!-- ── 末端负载 ── -->
   <div class="card">
     <h2 class="collapsible" onclick="toggleSection(this)">⚖️ 末端负载 (payload)</h2>
@@ -718,6 +740,78 @@ window.doClearStop = async () => {
 window.doEstop = () => {
   arm?.requestStop();
   log("🚨 急停已发送", "e");
+};
+
+// ── hand control ──
+(async function initHandGestures() {
+  // Populate gesture dropdown
+  try {
+    // static list matches server-side _GESTURE_PRESETS
+    const gestures = ["open","close","pinch","point","ok","rock","peace","fist","thumb_up"];
+    const sel = document.getElementById("hg");
+    gestures.forEach(g => { const o = document.createElement("option"); o.value = g; o.textContent = g; sel.appendChild(o); });
+  } catch {}
+})();
+
+async function pollHandState() {
+  if (!arm?.connected) return;
+  try {
+    const s = await arm.handGetState();
+    if (!s || s.connected === false) {
+      document.getElementById("hs").innerHTML = '<span style="color:#e94560">未连接</span>';
+      document.getElementById("hinfo").innerHTML = "";
+      return;
+    }
+    document.getElementById("hs").innerHTML = `<span style="color:#4ecca3">✓ ${s.type||"?"} 固件:${s.version||"?"}</span>`;
+    const pos = (s.position||[]).map(v=>Number(v).toFixed(0)).join(",");
+    const tmp = (s.temperature||[]).map(v=>v+"°").join(",");
+    document.getElementById("hinfo").innerHTML =
+      `<span class="kv"><span class="k">位置:</span><span class="v">[${pos}]</span></span>` +
+      `<span class="kv"><span class="k">温度:</span><span class="v">[${tmp}]</span></span>` +
+      (s.fault?.length ? `<span class="badge badge-err">故障: ${s.fault}</span>` : "");
+  } catch(e) { /* ignore poll errors */ }
+}
+// Poll hand state every 500ms when connected
+setInterval(() => { if (arm?.connected && document.getElementById("hs")?.textContent?.includes("✓")) pollHandState(); }, 500);
+
+window.doHandConnect = async () => {
+  if (!arm) return;
+  const ht = document.getElementById("htype").value;
+  const hj = document.getElementById("hj").value;
+  log(`hand_connect type=${ht} joint=${hj} ...`);
+  try { const r = await arm.handConnect(ht, hj); log("✓ "+JSON.stringify(r)); pollHandState(); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandDisconnect = async () => {
+  if (!arm) return;
+  try { const r = await arm.handDisconnect(); log("✓ "+JSON.stringify(r)); document.getElementById("hs").innerHTML='<span style="color:#e94560">未连接</span>'; }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandOpen = async () => {
+  if (!arm) return;
+  try { const r = await arm.handOpen(); log("✓ hand_open"); setTimeout(pollHandState,200); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandClose = async () => {
+  if (!arm) return;
+  try { const r = await arm.handClose(); log("✓ hand_close"); setTimeout(pollHandState,200); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandGesture = async () => {
+  const g = document.getElementById("hg").value;
+  if (!g || !arm) return;
+  try { const r = await arm.handSetGesture(g); log("✓ hand_set_gesture "+g); setTimeout(pollHandState,300); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandGetState = async () => {
+  if (!arm) return;
+  try { const r = await arm.handGetState(); log("✓ hand state: "+JSON.stringify(r)); pollHandState(); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+window.doHandClearFaults = async () => {
+  if (!arm) return;
+  try { const r = await arm.handClearFaults(); log("✓ hand_clear_faults"); }
+  catch(e) { log("✗ "+e.message,"e"); }
 };
 
 // ── system ──
