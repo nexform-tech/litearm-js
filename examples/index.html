@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiteArm Web Control — 全功能调试面板</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+.c { max-width: 960px; margin: 0 auto; padding: 20px; }
+h1 { text-align: center; margin-bottom: 20px; font-size: 22px; }
+.card { background: #16213e; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.card h2 { font-size: 14px; color: #888; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 6px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.row label { font-size: 12px; color: #888; min-width: 48px; }
+input, select { background: #1a1a2e; border: 1px solid #333; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
+input[type=number] { width: 80px; text-align: center; }
+.btn { padding: 8px 16px; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-m { background: #e94560; color: #fff; }  /* motion */
+.btn-s { background: #533483; color: #fff; }  /* system/stop */
+.btn-p { background: #1a3a3a; color: #4ecca3; } /* param/plan */
+.btn-c { background: #0f3460; color: #e94560; } /* connect */
+.btn-g { background: #2d5a2d; color: #8f8; }    /* get */
+.btn-d { background: #3d2e0d; color: #e9c545; }  /* danger */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-ok { background: #0d3b2e; color: #4ecca3; }
+.badge-err { background: #3d1010; color: #e94560; }
+.badge-warn { background: #3d2e0d; color: #e9c545; }
+.jgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 6px; }
+.jt { background: #1a1a2e; border-radius: 6px; padding: 5px 4px; text-align: center; }
+.jt .jn { font-size: 10px; color: #666; }
+.jt .jv { font-family: monospace; font-size: 13px; color: #4ecca3; }
+.jt input { width: 100%; text-align: center; }
+.log { background: #0d0d1a; border-radius: 6px; padding: 10px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.5; }
+.log .e { color: #e94560; }
+.log .i { color: #4ecca3; }
+.log .w { color: #e9c545; }
+.collapsible { cursor: pointer; user-select: none; }
+.collapsible::after { content: " ▼"; font-size: 10px; }
+.collapsed::after { content: " ▶"; font-size: 10px; }
+.collapse-body { display: block; }
+.collapse-body.hidden { display: none; }
+.kv { display: inline-block; margin: 2px 6px; font-size: 11px; }
+.kv .k { color: #888; }
+.kv .v { color: #4ecca3; font-family: monospace; }
+</style>
+</head>
+<body>
+<div class="c">
+  <h1>🤖 LiteArm Web Control — 全功能调试面板</h1>
+
+  <!-- ── 连接 ── -->
+  <div class="card">
+    <h2>🔌 连接 <span id="st" class="badge badge-warn">未连接</span></h2>
+    <div class="row">
+      <input type="text" id="ep" value="192.168.31.237:7449" style="flex:1;max-width:240px">
+      <input type="text" id="tk" placeholder="token（可选）" style="width:100px">
+      <button id="bc" class="btn btn-c" onclick="doConnect()">连接</button>
+      <button id="bd" class="btn btn-s" onclick="doDisconnect()" disabled>断开</button>
+    </div>
+  </div>
+
+  <!-- ── 实时状态 ── -->
+  <div class="card">
+    <h2>📡 实时状态 <span id="as" class="badge badge-err">--</span>
+      <span style="font-size:11px;color:#666;margin-left:12px" id="sr">序列号: --</span>
+    </h2>
+    <div class="jgrid" id="jg"></div>
+    <div style="margin-top:6px;font-size:12px;color:#888" id="tcp"></div>
+    <div style="margin-top:2px;font-size:11px;color:#555" id="gaininfo"></div>
+    <div style="margin-top:4px;font-size:11px" id="faultinfo"></div>
+  </div>
+
+  <!-- ── 关节运动 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🎯 关节运动 (movej / recover_joint_limits)</h2>
+    <div class="collapse-body">
+      <div class="jgrid" id="tg"></div>
+      <div class="row" style="margin-top:10px">
+        <label>Speed</label><input type="number" id="sp" value="0.3" step="0.05" min="0.05" max="1">
+        <label>Settle</label><input type="number" id="se" value="0.5" step="0.1" min="0" max="5" style="width:60px">
+        <button id="bm" class="btn btn-m" onclick="doMovej()" disabled>movej</button>
+        <button class="btn btn-p" onclick="setPreset([0,0.5,0,-1,0,0.6,0])">Home</button>
+        <button class="btn btn-p" onclick="setPreset([0,0,0,0,0,0,0])">Zero</button>
+        <button class="btn btn-p" onclick="syncTargets()">⇠同步当前角</button>
+        <label style="margin-left:8px">碰撞恢复</label><input type="checkbox" id="acr">
+        <button class="btn btn-d" onclick="doRecoverLimits()">限位恢复</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 笛卡尔运动 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">📐 笛卡尔运动 (movel / movec / movep)</h2>
+    <div class="collapse-body">
+      <div class="row"><label>X</label><input type="number" id="cx" value="0" step="0.01"><label>Y</label><input type="number" id="cy" value="0" step="0.01"><label>Z</label><input type="number" id="cz" value="0.4" step="0.01"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-m" onclick="doMovel()" disabled id="bml">movel (直线)</button>
+        <button class="btn btn-m" onclick="doMovec()" disabled>movec (圆弧)</button>
+        <button class="btn btn-m" onclick="doMovep()" disabled>movep (多点)</button>
+        <button class="btn btn-p" onclick="syncPose()">⇠从FK填入位置</button>
+      </div>
+      <div class="row" style="margin-top:4px"><label style="min-width:96px">via X/Y/Z</label>
+        <input type="number" id="vx" value="0.1" step="0.01"><input type="number" id="vy" value="0.1" step="0.01"><input type="number" id="vz" value="0.4" step="0.01">
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 规划（纯计算） ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🧮 运动规划（纯计算, no motion）</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-p" onclick="doFk()">FK (关节→位姿)</button>
+        <button class="btn btn-p" onclick="doIk()">IK (位姿→关节)</button>
+        <button class="btn btn-p" onclick="doPlanMovel()">plan_movel</button>
+        <button class="btn btn-p" onclick="doPlanMovec()">plan_movec</button>
+        <button class="btn btn-p" onclick="doPlanMovep()">plan_movep</button>
+        <button class="btn btn-p" onclick="doGetTcpPose()">get_tcp_pose</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 轨迹回放 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">⏯ 轨迹回放 (replay / play)</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-m" onclick="doReplayJointPath()">replay_joint_path</button>
+        <button class="btn btn-m" onclick="doReplayTrajectory()">replay_trajectory</button>
+        <button class="btn btn-m" onclick="doReplayTimed()">replay_timed_trajectory</button>
+        <button class="btn btn-m" onclick="doPlayTrajectory()">play_trajectory</button>
+        <button class="btn btn-p" onclick="doRecordTrajectory()">record_trajectory</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 零重力 / 保持 / 阻抗 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🪶 零重力 / 保持 / 阻抗</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-m" onclick="doZeroGravity()">零重力 (zero_gravity)</button>
+        <button class="btn btn-m" onclick="doHold()">刚性保持 (hold)</button>
+        <button class="btn btn-m" onclick="doJointImpedance()">关节阻抗 (joint_impedance)</button>
+        <button class="btn btn-m" onclick="doCartesianImpedance()">笛卡尔阻抗 (cartesian_impedance)</button>
+      </div>
+      <div class="row" style="margin-top:4px"><label>duration_s</label><input type="number" id="zg_dur" value="0" step="1" style="width:60px"> <span style="font-size:11px;color:#666">(0=无限,需急停止)</span></div>
+    </div>
+  </div>
+
+  <!-- ── 末端负载 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">⚖️ 末端负载 (payload)</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="doGetPayload()">get_payload</button>
+        <label>Mass(kg)</label><input type="number" id="pm" value="0" step="0.1" min="0">
+        <label>COM X</label><input type="number" id="pcx" value="0" step="0.01">
+        <label>COM Y</label><input type="number" id="pcy" value="0" step="0.01">
+        <label>COM Z</label><input type="number" id="pcz" value="0" step="0.01">
+        <button class="btn btn-p" onclick="doSetPayload()">set_payload</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 安装角度 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🏗️ 安装角度 (installation)</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="doGetInstallation()">get_installation</button>
+        <label>Roll</label><input type="number" id="ir" value="0" step="0.01">
+        <label>Pitch</label><input type="number" id="ip" value="0" step="0.01">
+        <label>Yaw</label><input type="number" id="iy" value="0" step="0.01">
+        <button class="btn btn-p" onclick="doSetInstallation()">set_installation</button>
+      </div>
+      <div class="row" style="margin-top:4px"><label>gravity</label>
+        <input type="number" id="igx" value="0" step="0.1" style="width:70px">
+        <input type="number" id="igy" value="0" step="0.1" style="width:70px">
+        <input type="number" id="igz" value="-9.81" step="0.1" style="width:70px">
+        <button class="btn btn-p" onclick="doSetInstallationGravity()">set_installation(gravity)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 增益 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">📊 PD 增益 / 故障</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="doGetGains()">get_gains</button>
+        <button class="btn btn-p" onclick="doSetGains()">set_gains (还原默认)</button>
+        <button class="btn btn-d" onclick="doClearFaults()">clear_faults</button>
+        <button class="btn btn-s" onclick="doClearStop()">clear_stop</button>
+        <button class="btn btn-s" onclick="doEstop()" disabled id="bs">🚨 急停</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 系统信息 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🖥️ 系统信息</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="doGetSystemStats()">get_system_stats</button>
+        <button class="btn btn-g" onclick="doGetLogs()">get_logs</button>
+        <button class="btn btn-s" onclick="doRestartService()">restart_service</button>
+      </div>
+      <div id="sysinfo" style="margin-top:6px;font-size:11px"></div>
+    </div>
+  </div>
+
+  <!-- ── 设置 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">⚙️ 设置 (settings)</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="callAndShow('get_joint_limits','关节限位')">get_joint_limits</button>
+        <button class="btn btn-g" onclick="callAndShow('get_zero_offsets','零点偏移')">get_zero_offsets</button>
+        <button class="btn btn-g" onclick="callAndShow('get_end_effector','末端配置')">get_end_effector</button>
+        <button class="btn btn-g" onclick="callAndShow('get_cartesian_limits','笛卡尔限幅')">get_cartesian_limits</button>
+        <button class="btn btn-g" onclick="callAndShow('get_collision_config','碰撞配置')">get_collision_config</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 轨迹管理 ── -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">📁 轨迹文件管理</h2>
+    <div class="collapse-body">
+      <div class="row">
+        <button class="btn btn-g" onclick="callAndShow('list_trajectories','轨迹列表')">list</button>
+        <button class="btn btn-p" onclick="doSaveTrajectory()">save</button>
+        <input type="text" id="traj_id" placeholder="轨迹ID" style="width:120px">
+        <button class="btn btn-d" onclick="doDeleteTrajectory()">delete</button>
+        <button class="btn btn-g" onclick="callAndShow('get_recording_state','录制状态')">recording_state</button>
+        <button class="btn btn-g" onclick="callAndShow('get_playback_state','回放状态')">playback_state</button>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="btn btn-p" onclick="callAndShow('start_recording','录制')">start_recording</button>
+        <button class="btn btn-s" onclick="callAndShow('stop_recording','录制')">stop_recording</button>
+        <button class="btn btn-d" onclick="callAndShow('discard_recording','录制')">discard_recording</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 日志 ── -->
+  <div class="card">
+    <h2>📋 日志 <button class="btn btn-s" style="float:right;padding:4px 10px;font-size:11px" onclick="document.getElementById('log').innerHTML=''">清空</button></h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { Arm } from "/dist/litearm.mjs";
+
+let arm = null, timer = 0;
+
+// ── helpers ──
+function log(msg, cls) {
+  const el = document.getElementById("log");
+  const d = document.createElement("div");
+  d.className = cls === "e" ? "e" : cls === "w" ? "w" : "i";
+  d.textContent = new Date().toLocaleTimeString().slice(0,8) + "  " + msg;
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+
+window.toggleSection = function(h2) {
+  const body = h2.nextElementSibling;
+  body.classList.toggle("hidden");
+  h2.classList.toggle("collapsed");
+};
+
+// ── init joint grids ──
+["jg","tg"].forEach(id => {
+  const g = document.getElementById(id); g.innerHTML = "";
+  for (let i=1;i<=7;i++) {
+    const d = document.createElement("div"); d.className = "jt";
+    d.innerHTML = `<div class="jn">J${i}</div>` +
+      (id==="jg" ? `<div class="jv" id="${id}_${i}">--</div>`
+                 : `<input type="number" step="0.01" id="${id}_${i}" value="0">`);
+    g.appendChild(d);
+  }
+});
+
+function setConnected(v) {
+  document.getElementById("st").textContent = v ? "已连接" : "未连接";
+  document.getElementById("st").className = "badge " + (v ? "badge-ok" : "badge-warn");
+  ["bc","bd","bm","bml","bs"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id==="bc") el.disabled = v;
+    else if (id==="bd") el.disabled = !v;
+    else el.disabled = !v;
+  });
+}
+
+// ── state poll ──
+function pollState() {
+  if (!arm?.connected) return;
+  const s = arm.getState();
+  if (!s) return;
+  document.getElementById("as").textContent = s.state;
+  document.getElementById("as").className = "badge badge-ok";
+  for (let i=0;i<7;i++) {
+    const el = document.getElementById("jg_"+(i+1));
+    if (el) el.textContent = Number(s.q[i]).toFixed(3);
+  }
+  document.getElementById("tcp").textContent =
+    `q=[${s.q.map(v=>Number(v).toFixed(3))}]  dq=[${s.dq.map(v=>Number(v).toFixed(2))}]`;
+  document.getElementById("sr").textContent = `序列号: ${s.robot_serial || "--"}`;
+
+  // faults
+  const fi = document.getElementById("faultinfo");
+  if (s.fault?.length) {
+    fi.innerHTML = `<span class="badge badge-err">故障: ${s.fault.map(f=>`J${f.joint}:0x${f.err_code.toString(16)}`).join(" ")}</span>`;
+  } else {
+    fi.innerHTML = `<span style="color:#4ecca3;font-size:11px">✓ 无故障</span>`;
+  }
+
+  // temps
+  if (s.temps) {
+    const tstr = s.temps.map((t,i)=>`J${i+1}:${t.mos_temp}°/${t.coil_temp}°`).join(" ");
+    fi.innerHTML += ` <span style="font-size:11px;color:#666;margin-left:8px">温度: ${tstr}</span>`;
+  }
+}
+
+// ── connect / disconnect ──
+window.doConnect = async () => {
+  const ep = document.getElementById("ep").value;
+  const tk = document.getElementById("tk").value || undefined;
+  try {
+    arm = new Arm(ep, tk);
+    await arm.connect();
+    setConnected(true);
+    log("✓ 已连接 " + ep);
+    timer = setInterval(pollState, 50);
+    try {
+      const g = await arm.getGains();
+      document.getElementById("gaininfo").textContent = `kp=[${g.kp.map(v=>Number(v).toFixed(1))}]  kd=[${g.kd.map(v=>Number(v).toFixed(2))}]`;
+    } catch {}
+  } catch(e) { log("连接失败: " + e.message, "e"); }
+};
+
+window.doDisconnect = () => {
+  clearInterval(timer);
+  arm?.close(); arm = null;
+  setConnected(false);
+  log("已断开");
+};
+
+// ── joint motion ──
+window.setPreset = (q) => { for (let i=0;i<7;i++) document.getElementById("tg_"+(i+1)).value=q[i]; };
+window.syncTargets = () => { for (let i=0;i<7;i++) { const v = document.getElementById("jg_"+(i+1))?.textContent; if (v&&v!=="--") document.getElementById("tg_"+(i+1)).value=v; } };
+
+window.doMovej = async () => {
+  if (!arm) return;
+  const q = []; for (let i=1;i<=7;i++) q.push(+document.getElementById("tg_"+i).value||0);
+  const sp = +document.getElementById("sp").value||0.3;
+  const se = +document.getElementById("se").value||0.5;
+  const acr = document.getElementById("acr").checked;
+  log(`movej [${q.map(v=>v.toFixed(2))}] speed=${sp} acr=${acr} ...`);
+  try { const ok = await arm.movej(q, {speed:sp, settle_s:se, allow_start_collision_recovery:acr}); log("✓ ok=" + ok); }
+  catch(e) { log("✗ " + e.message, "e"); }
+};
+
+window.doRecoverLimits = async () => {
+  if (!arm) return;
+  log("recover_joint_limits ...");
+  try { const ok = await arm.recoverJointLimits({speed:0.05}); log("✓ ok=" + ok); }
+  catch(e) { log("✗ " + e.message, "e"); }
+};
+
+// ── cartesian motion ──
+function getPose() {
+  const s = arm?.getState();
+  if (!s) return null;
+  const [pos,,R] = [s.q.map(Number), null, null];
+  return R; // need fk for rotation
+}
+
+window.syncPose = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return log("无状态", "e");
+  try {
+    const [pos] = await arm.fk(s.q.map(Number));
+    document.getElementById("cx").value = pos[0].toFixed(3);
+    document.getElementById("cy").value = pos[1].toFixed(3);
+    document.getElementById("cz").value = pos[2].toFixed(3);
+    log("FK: pos=" + pos.map(v=>v.toFixed(3)));
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+async function makePoseFromInputs() {
+  const s = arm.getState();
+  if (!s) throw new Error("无状态");
+  const pos = [+document.getElementById("cx").value, +document.getElementById("cy").value, +document.getElementById("cz").value];
+  const [, R] = await arm.fk(s.q.map(Number));
+  return [pos, R];
+}
+
+window.doMovel = async () => {
+  if (!arm) return;
+  try {
+    const pose = await makePoseFromInputs();
+    log(`movel → [${pose[0].map(v=>v.toFixed(3))}] ...`);
+    const ok = await arm.movel(pose, {speed:0.15, settle_s:0.8});
+    log("✓ ok=" + ok);
+  } catch(e) { log("✗ " + e.message, "e"); }
+};
+
+window.doMovec = async () => {
+  if (!arm) return;
+  try {
+    const pose_goal = await makePoseFromInputs();
+    const s = arm.getState();
+    const [, R] = await arm.fk(s.q.map(Number));
+    const pose_via = [[+document.getElementById("vx").value, +document.getElementById("vy").value, +document.getElementById("vz").value], R];
+    log(`movec via→goal ...`);
+    const ok = await arm.movec(pose_via, pose_goal, {speed:0.15, settle_s:0.8});
+    log("✓ ok=" + ok);
+  } catch(e) { log("✗ " + e.message, "e"); }
+};
+
+window.doMovep = async () => {
+  if (!arm) return;
+  try {
+    const pose_goal = await makePoseFromInputs();
+    const s = arm.getState();
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    const mid = [(pos[0]+pose_goal[0][0])/2, (pos[1]+pose_goal[0][1])/2, (pos[2]+pose_goal[0][2])/2];
+    log(`movep [当前, 中间点, 目标] ...`);
+    const ok = await arm.movep([[pos,R], [mid,R], pose_goal], {speed:0.15, settle_s:0.8});
+    log("✓ ok=" + ok);
+  } catch(e) { log("✗ " + e.message, "e"); }
+};
+
+// ── planning ──
+window.doFk = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  try {
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    log(`FK: pos=[${pos.map(v=>v.toFixed(4))}]`+" R="+JSON.stringify(R.map(r=>r.map(v=>+v.toFixed(2)))));
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doIk = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  try {
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    const [q, ok] = await arm.ik(pos, R, s.q.map(Number));
+    log(`IK: ok=${ok} q=[${q.map(v=>v.toFixed(4))}]`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doPlanMovel = async () => {
+  if (!arm) return;
+  try {
+    const s = arm.getState();
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    const target = [[pos[0]+0.05, pos[1], pos[2]], R];
+    const qs = await arm.planMovel(s.q.map(Number), target);
+    log(`plan_movel: ${qs.length} waypoints`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doPlanMovec = async () => {
+  if (!arm) return;
+  try {
+    const s = arm.getState();
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    const via = [[pos[0]+0.03, pos[1]+0.03, pos[2]], R];
+    const goal = [[pos[0]+0.06, pos[1], pos[2]], R];
+    const qs = await arm.planMovec(s.q.map(Number), via, goal);
+    log(`plan_movec: ${qs.length} waypoints`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doPlanMovep = async () => {
+  if (!arm) return;
+  try {
+    const s = arm.getState();
+    const [pos, R] = await arm.fk(s.q.map(Number));
+    const pts = [[pos, R], [[pos[0]+0.03, pos[1], pos[2]], R], [[pos[0]+0.06, pos[1], pos[2]], R]];
+    const qs = await arm.planMovep(s.q.map(Number), pts);
+    log(`plan_movep: ${qs.length} waypoints`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doGetTcpPose = async () => {
+  if (!arm) return;
+  try {
+    const [pos, R] = await arm.getTcpPose();
+    log(`TCP: pos=[${pos.map(v=>v.toFixed(4))}]`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── trajectory replay ──
+window.doReplayJointPath = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q0 = s.q.map(Number);
+  const qs = [q0, q0.map((v,i)=>v+(i===1?0.3:i===3?-0.3:0))];
+  log(`replay_joint_path: ${qs.length} points ...`);
+  try { const ok = await arm.replayJointPath(qs, {speed:0.2}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doReplayTrajectory = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q0 = s.q.map(Number);
+  const qs = [q0, q0.map((v,i)=>v+(i===1?0.2:i===3?-0.2:0)), q0];
+  log(`replay_trajectory: ${qs.length} points ...`);
+  try { const ok = await arm.replayTrajectory(qs, {speed:0.2}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doReplayTimed = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q0 = s.q.map(Number);
+  const qs = [q0, q0.map((v,i)=>v+(i===1?0.2:i===3?-0.2:0)), q0];
+  const ts = [0, 1.0, 2.0];
+  log(`replay_timed_trajectory: ${qs.length} points ...`);
+  try { const ok = await arm.replayTimedTrajectory(qs, ts, {speed:0.3}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doPlayTrajectory = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q0 = s.q.map(Number);
+  const traj = {
+    frames: [
+      {t:0, q:q0, dq:[0,0,0,0,0,0,0]},
+      {t:1, q:q0.map((v,i)=>v+(i===1?0.2:i===3?-0.2:0)), dq:[0,0,0,0,0,0,0]},
+      {t:2, q:q0, dq:[0,0,0,0,0,0,0]},
+    ],
+    name: "test",
+    sample_rate_hz: 100,
+  };
+  log(`play_trajectory: ${traj.frames.length} frames ...`);
+  try { const ok = await arm.playTrajectory(traj, {speed:0.2, verify_robot:false}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doRecordTrajectory = async () => {
+  if (!arm) return;
+  log("record_trajectory (3s, 50Hz) ...");
+  try { const traj = await arm.recordTrajectory({duration_s:3, sample_rate_hz:50}); log("✓ recorded: "+JSON.stringify({name:traj.name, frames:traj.frames?.length})); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── zero gravity / hold / impedance ──
+window.doZeroGravity = async () => {
+  if (!arm) return;
+  const dur = +document.getElementById("zg_dur").value||undefined;
+  log(`zero_gravity${dur ? " (duration="+dur+"s)" : " (无限,需急停止)"} ...`);
+  try { const ok = await arm.zeroGravity({duration_s: dur}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doHold = async () => {
+  if (!arm) return;
+  log("hold(kp_scale=3.0) ...");
+  try { const ok = await arm.hold(3.0); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doJointImpedance = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q = s.q.map(Number);
+  const K = [4,10,10,2,2,1,0.5];
+  const B = [0.5,0.8,0.8,0.2,0.2,0.1,0.05];
+  log(`joint_impedance q_des=[${q.map(v=>v.toFixed(2))}] ...`);
+  try { const ok = await arm.jointImpedance(q, K, B, {engage_sec:0.3}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doCartesianImpedance = async () => {
+  if (!arm) return;
+  const s = arm.getState();
+  if (!s) return;
+  const q = s.q.map(Number);
+  const K_cart = [200,200,200,4,4,4];
+  const B_cart = [5,5,5,0.8,0.8,0.8];
+  log(`cartesian_impedance ...`);
+  try { const ok = await arm.cartesianImpedance(q, K_cart, B_cart, {engage_sec:0.3}); log("✓ ok="+ok); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── payload ──
+window.doGetPayload = async () => {
+  if (!arm) return;
+  try { const p = await arm.getPayload(); log(`payload: mass=${p.mass}kg com=[${p.com.map(v=>Number(v).toFixed(3))}]`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doSetPayload = async () => {
+  if (!arm) return;
+  const m = +document.getElementById("pm").value||0;
+  const com = [+document.getElementById("pcx").value||0, +document.getElementById("pcy").value||0, +document.getElementById("pcz").value||0];
+  log(`set_payload mass=${m} com=[${com}] ...`);
+  try { const p = await arm.setPayload(m, com); log(`✓ ok: mass=${p.mass} com=[${p.com.map(v=>Number(v).toFixed(3))}]`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── installation ──
+window.doGetInstallation = async () => {
+  if (!arm) return;
+  try { const inst = await arm.getInstallation(); log(`installation: base_rpy=${inst.base_rpy} gravity=${inst.gravity?.map(v=>Number(v).toFixed(2))}`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doSetInstallation = async () => {
+  if (!arm) return;
+  const rpy = [+document.getElementById("ir").value||0, +document.getElementById("ip").value||0, +document.getElementById("iy").value||0];
+  log(`set_installation base_rpy=[${rpy}] ...`);
+  try { const inst = await arm.setInstallation(rpy); log(`✓ gravity=${inst.gravity?.map(v=>Number(v).toFixed(2))}`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doSetInstallationGravity = async () => {
+  if (!arm) return;
+  const g = [+document.getElementById("igx").value||0, +document.getElementById("igy").value||0, +document.getElementById("igz").value||-9.81];
+  log(`set_installation gravity=[${g}] ...`);
+  try { const inst = await arm.setInstallation(undefined, g); log(`✓ gravity=${inst.gravity?.map(v=>Number(v).toFixed(2))}`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── gains / faults / estop ──
+window.doGetGains = async () => {
+  if (!arm) return;
+  try { const g = await arm.getGains(); log(`gains: kp=[${g.kp.map(v=>Number(v).toFixed(1))}] kd=[${g.kd.map(v=>Number(v).toFixed(2))}]`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doSetGains = async () => {
+  if (!arm) return;
+  log("set_gains(kp=default, kd=default) ...");
+  try { const g = await arm.setGains(); log(`✓ kp=[${g.kp.map(v=>Number(v).toFixed(1))}]`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doClearFaults = async () => {
+  if (!arm) return;
+  log("clear_faults ...");
+  try { const r = await arm.clearFaults(); log("✓ " + JSON.stringify(r)); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doClearStop = async () => {
+  if (!arm) return;
+  log("clear_stop ...");
+  try { await arm.clearStop(); log("✓ ok"); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doEstop = () => {
+  arm?.requestStop();
+  log("🚨 急停已发送", "e");
+};
+
+// ── system ──
+window.doGetSystemStats = async () => {
+  if (!arm) return;
+  try {
+    const s = await arm.getSystemStats();
+    document.getElementById("sysinfo").innerHTML =
+      `<span class="kv"><span class="k">CPU:</span><span class="v">${s.cpu_percent}%</span></span>`+
+      `<span class="kv"><span class="k">MEM:</span><span class="v">${s.mem_percent}%</span></span>`+
+      `<span class="kv"><span class="k">DISK:</span><span class="v">${s.disk_percent}%</span></span>`+
+      `<span class="kv"><span class="k">TEMP:</span><span class="v">${s.board_temp}°C</span></span>`+
+      `<span class="kv"><span class="k">UPTIME:</span><span class="v">${(s.uptime_seconds/3600).toFixed(1)}h</span></span>`;
+    log(`system_stats: CPU=${s.cpu_percent}% MEM=${s.mem_percent}%`);
+  } catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doGetLogs = async () => {
+  if (!arm) return;
+  try { const r = await arm.getLogs(); log(`logs: total=${r.total}`); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doRestartService = async () => {
+  if (!arm) return;
+  log("restart_service ...", "w");
+  try { const r = await arm.restartService(); log(JSON.stringify(r)); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+// ── generic call-and-show ──
+window.callAndShow = async (method, label) => {
+  if (!arm) return;
+  try {
+    const r = await arm._rpc(method);
+    log(`✓ ${label}: ` + JSON.stringify(r).slice(0,200));
+  } catch(e) { log(`✗ ${method}: ` + e.message, "e"); }
+};
+
+// ── trajectory management ──
+window.doSaveTrajectory = async () => {
+  if (!arm) return;
+  const id = document.getElementById("traj_id").value || Date.now().toString();
+  const s = arm.getState();
+  const pts = s ? [s.q.map(Number)] : [[0,0,0,0,0,0,0]];
+  log(`save_trajectory id=${id} ...`);
+  try { const r = await arm.saveTrajectory(id, "test_"+id, pts); log("✓ " + JSON.stringify(r).slice(0,200)); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+
+window.doDeleteTrajectory = async () => {
+  if (!arm) return;
+  const id = document.getElementById("traj_id").value;
+  if (!id) return log("请填写轨迹ID", "w");
+  log(`delete_trajectory id=${id} ...`);
+  try { const r = await arm.deleteTrajectory(id); log("✓ " + JSON.stringify(r)); }
+  catch(e) { log("✗ "+e.message,"e"); }
+};
+</script>
+</body>
+</html>
