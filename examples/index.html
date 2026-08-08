@@ -708,7 +708,7 @@ window.doRestartService = async () => {
 window.callAndShow = async (method, label) => {
   if (!arm) return;
   try {
-    const r = await arm._rpc(method);
+    const r = await arm.call(method);
     log(`✓ ${label}: ` + JSON.stringify(r).slice(0,200));
   } catch(e) { log(`✗ ${method}: ` + e.message, "e"); }
 };

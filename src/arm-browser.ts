@@ -367,6 +367,13 @@ export class Arm {
   }
   async deleteTrajectory(id: string): Promise<Record<string, unknown>> { return this._rpc("delete_trajectory", { id }); }
 
+  // ── Generic RPC (for debug panels / dynamic calls) ────────────────────
+
+  /** Generic RPC call — useful for debug panels and custom handlers. */
+  async call<T>(method: string, kwargs: Record<string, unknown> = {}): Promise<T> {
+    return this._rpc(method, kwargs);
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────
 
   private async _rpc<T>(method: string, kwargs: Record<string, unknown> = {}, timeoutS = 300): Promise<T> {
