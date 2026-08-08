@@ -299,46 +299,48 @@ export class Arm {
   /** Clear estop and return to ready. */
   async clearStop(): Promise<void> { return this._rpc("clear_stop"); }
 
-  // ── Hand control (灵巧手) ─────────────────────────────────────────────
+  // ── Device access ─────────────────────────────────────────────────────
+
+  /**
+   * Get a proxy for a remote device (hand, gripper, etc.).
+   *
+   * Routes calls through litearm-server → zenoh → device daemon.
+   *
+   * @example
+   * ```typescript
+   * const hand = arm.device('hand_0');
+   * await hand.call('open');
+   * await hand.call('set_gesture', { gesture: 'pinch' });
+   * const state = await hand.call('get_state');
+   *
+   * const gripper = arm.device('gripper_0');
+   * await gripper.call('set_width', { width: 0.5 });
+   * ```
+   */
+  device(deviceId: string): DeviceProxy {
+    return new DeviceProxy(deviceId, (method, kwargs) => this._rpc(`device.${deviceId}.${method}`, kwargs));
+  }
+
+  // ── Hand control (便捷方法，内部走 device proxy) ────────────────────────
 
   /** Connect to the dexterous hand. */
   async handConnect(handType = "right", handJoint = "L10", canIface = "can0"): Promise<Record<string, unknown>> {
-    return this._rpc("hand_connect", { hand_type: handType, hand_joint: handJoint, can_iface: canIface });
+    return this.device("hand_0").call("connect", { hand_type: handType, hand_joint: handJoint, can_iface: canIface });
   }
-
-  /** Disconnect the hand. */
-  async handDisconnect(): Promise<Record<string, unknown>> { return this._rpc("hand_disconnect"); }
-
-  /** Open the hand (all fingers to 0). */
-  async handOpen(speed?: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_open", { speed }); }
-
-  /** Close the hand (all fingers to max). */
-  async handClose(speed?: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_close", { speed }); }
-
-  /** Set a named gesture (open/close/pinch/point/ok/rock/peace/fist/thumb_up). */
+  async handOpen(speed?: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("open"); }
+  async handClose(speed?: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("close"); }
   async handSetGesture(gesture: string, speed?: number[]): Promise<Record<string, unknown>> {
-    return this._rpc("hand_set_gesture", { gesture, speed });
+    return this.device("hand_0").call("set_gesture", { gesture, speed });
   }
-
-  /** Move fingers to specific positions (0-255 per joint). */
   async handFingerMove(pose: number[], speed?: number[]): Promise<Record<string, unknown>> {
-    return this._rpc("hand_finger_move", { pose, speed });
+    return this.device("hand_0").call("finger_move", { pose, speed });
   }
-
-  /** Set finger speed (0-255). */
-  async handSetSpeed(speed: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_set_speed", { speed }); }
-
-  /** Set finger torque (0-255). */
-  async handSetTorque(torque: number[]): Promise<Record<string, unknown>> { return this._rpc("hand_set_torque", { torque }); }
-
-  /** Get hand state (positions, speeds, torques, temps, faults). */
-  async handGetState(): Promise<Record<string, unknown>> { return this._rpc("hand_get_state"); }
-
-  /** Clear hand faults. */
-  async handClearFaults(): Promise<Record<string, unknown>> { return this._rpc("hand_clear_faults"); }
-
-  /** List available gestures. */
-  async handListGestures(): Promise<Record<string, unknown>> { return this._rpc("hand_list_gestures"); }
+  async handSetSpeed(speed: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("set_speed", { speed }); }
+  async handSetTorque(torque: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("set_torque", { torque }); }
+  async handGetState(): Promise<Record<string, unknown>> { return this.device("hand_0").call("get_state"); }
+  async handClearFaults(): Promise<Record<string, unknown>> { return this.device("hand_0").call("clear_faults"); }
+  async handListGestures(): Promise<Record<string, unknown>> { return this.device("hand_0").call("list_gestures"); }
+  async handDisconnect(): Promise<Record<string, unknown>> { return this.device("hand_0").call("disconnect"); }
 
   // ── Parameter tuning ──────────────────────────────────────────────────
 
@@ -422,4 +424,44 @@ export class Arm {
     const reply = await this._tp.rpc(payload, timeoutS);
     return decodeReply(reply) as T;
   }
+}
+
+// ── DeviceProxy ────────────────────────────────────────────────────────
+
+type RpcFn = (method: string, kwargs: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * Proxy for a remote device (hand, gripper, etc.).
+ *
+ * Calls go through the litearm-server WebSocket → zenoh → device daemon.
+ */
+export class DeviceProxy {
+  constructor(
+    public readonly deviceId: string,
+    private _rpc: RpcFn,
+  ) {}
+
+  /** Call any method on the remote device. */
+  async call(method: string, kwargs: Record<string, unknown> = {}): Promise<unknown> {
+    return this._rpc(method, kwargs);
+  }
+
+  // ── Convenience methods for hands ────────────────────────────────────
+
+  async connect(kwargs: Record<string, unknown> = {}): Promise<unknown> {
+    return this.call("connect", kwargs);
+  }
+  async disconnect(): Promise<unknown> { return this.call("disconnect"); }
+  async open(): Promise<unknown> { return this.call("open"); }
+  async close(): Promise<unknown> { return this.call("close"); }
+  async setGesture(gesture: string): Promise<unknown> { return this.call("set_gesture", { gesture }); }
+  async fingerMove(pose: number[]): Promise<unknown> { return this.call("finger_move", { pose }); }
+  async getState(): Promise<unknown> { return this.call("get_state"); }
+  async clearFaults(): Promise<unknown> { return this.call("clear_faults"); }
+
+  // ── Convenience methods for grippers ─────────────────────────────────
+
+  async setWidth(width: number): Promise<unknown> { return this.call("set_width", { width }); }
+  async getWidth(): Promise<unknown> { return this.call("get_width"); }
+  async setForce(force: number): Promise<unknown> { return this.call("set_force", { force }); }
 }
