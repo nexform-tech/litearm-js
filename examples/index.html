@@ -45,6 +45,13 @@ input[type=number] { width: 80px; text-align: center; }
 .kv { display: inline-block; margin: 2px 6px; font-size: 11px; }
 .kv .k { color: #888; }
 .kv .v { color: #4ecca3; font-family: monospace; }
+#state-table th, #state-table td { padding: 3px 6px; text-align: center; white-space: nowrap; }
+#state-table th { color: #888; font-weight: 500; border-bottom: 1px solid #333; }
+#state-table .rh { text-align: left; color: #888; font-weight: 500; min-width: 48px; }
+#state-table .val { font-family: monospace; color: #4ecca3; }
+#state-table .warn { color: #e9c545; }
+#state-table .err { color: #e94560; font-weight: 600; }
+#state-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
 </style>
 </head>
 <body>
@@ -66,11 +73,15 @@ input[type=number] { width: 80px; text-align: center; }
   <div class="card">
     <h2>📡 实时状态 <span id="as" class="badge badge-err">--</span>
       <span style="font-size:11px;color:#666;margin-left:12px" id="sr">序列号: --</span>
+      <span style="font-size:11px;color:#666;margin-left:12px" id="gaininfo"></span>
     </h2>
-    <div class="jgrid" id="jg"></div>
-    <div style="margin-top:6px;font-size:12px;color:#888" id="tcp"></div>
-    <div style="margin-top:2px;font-size:11px;color:#555" id="gaininfo"></div>
-    <div style="margin-top:4px;font-size:11px" id="faultinfo"></div>
+    <div id="stbl" style="overflow-x:auto">
+      <table id="state-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr id="state-header"><th style="min-width:56px"></th></tr></thead>
+        <tbody id="state-body"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:6px;font-size:11px" id="faultinfo"></div>
   </div>
 
   <!-- ── 关节运动 ── -->
@@ -255,7 +266,7 @@ input[type=number] { width: 80px; text-align: center; }
 </div>
 
 <script type="module">
-import { Arm } from "/dist/litearm.mjs";
+import { Arm } from "/dist/litearm.mjs?v=3";
 
 let arm = null, timer = 0;
 
@@ -274,17 +285,37 @@ window.toggleSection = function(h2) {
   h2.classList.toggle("collapsed");
 };
 
-// ── init joint grids ──
-["jg","tg"].forEach(id => {
-  const g = document.getElementById(id); g.innerHTML = "";
+// ── init state table ──
+const ROWS = [
+  { id:"q",   label:"关节角 q (rad)",      fmt:v=>v.toFixed(4), warn:nil=>false },
+  { id:"dq",  label:"速度 dq (rad/s)",      fmt:v=>v.toFixed(3), warn:v=>Math.abs(v)>2 },
+  { id:"tau", label:"力矩 τ (Nm)",           fmt:v=>v.toFixed(2), warn:v=>Math.abs(v)>8 },
+  { id:"errs",label:"错误码",                fmt:v=>"0x"+v.toString(16).toUpperCase(), warn:v=>v!==0 },
+  { id:"mt",  label:"MOS 温度 (°C)",         fmt:v=>v+"°",       warn:v=>v>70 },
+  { id:"ct",  label:"线圈温度 (°C)",         fmt:v=>v+"°",       warn:v=>v>90 },
+];
+(function initStateTable() {
+  // header
+  const thead = document.getElementById("state-header");
+  thead.innerHTML = "<th class='rh'></th>" + Array.from({length:7},(_,i)=>`<th>J${i+1}</th>`).join("");
+  // body
+  const tbody = document.getElementById("state-body");
+  tbody.innerHTML = ROWS.map(r =>
+    `<tr id="sr_${r.id}"><td class="rh">${r.label}</td>` +
+    Array.from({length:7},(_,i)=>`<td id="sc_${r.id}_${i}" class="val">--</td>`).join("") +
+    `</tr>`
+  ).join("");
+})();
+
+// ── init target grid ──
+(function initTargetGrid() {
+  const g = document.getElementById("tg"); g.innerHTML = "";
   for (let i=1;i<=7;i++) {
     const d = document.createElement("div"); d.className = "jt";
-    d.innerHTML = `<div class="jn">J${i}</div>` +
-      (id==="jg" ? `<div class="jv" id="${id}_${i}">--</div>`
-                 : `<input type="number" step="0.01" id="${id}_${i}" value="0">`);
+    d.innerHTML = `<div class="jn">J${i}</div><input type="number" step="0.01" id="tg_${i}" value="0">`;
     g.appendChild(d);
   }
-});
+})();
 
 function setConnected(v) {
   document.getElementById("st").textContent = v ? "已连接" : "未连接";
@@ -303,28 +334,41 @@ function pollState() {
   if (!arm?.connected) return;
   const s = arm.getState();
   if (!s) return;
+
+  // status badge
   document.getElementById("as").textContent = s.state;
   document.getElementById("as").className = "badge badge-ok";
-  for (let i=0;i<7;i++) {
-    const el = document.getElementById("jg_"+(i+1));
-    if (el) el.textContent = Number(s.q[i]).toFixed(3);
-  }
-  document.getElementById("tcp").textContent =
-    `q=[${s.q.map(v=>Number(v).toFixed(3))}]  dq=[${s.dq.map(v=>Number(v).toFixed(2))}]`;
   document.getElementById("sr").textContent = `序列号: ${s.robot_serial || "--"}`;
+
+  // 7 关节 × 6 维度表格
+  const data = {
+    q:   s.q?.map(Number)   || [],
+    dq:  s.dq?.map(Number)  || [],
+    tau: s.tau?.map(Number) || [],
+    errs:s.errs?.map(Number)|| [],
+    mt:  s.temps?.map(t=>t.mos_temp)  || [],
+    ct:  s.temps?.map(t=>t.coil_temp) || [],
+  };
+
+  for (const row of ROWS) {
+    const vals = data[row.id];
+    for (let i=0;i<7;i++) {
+      const td = document.getElementById(`sc_${row.id}_${i}`);
+      if (!td) continue;
+      const v = vals[i];
+      if (v === undefined || v === null) { td.textContent = "--"; td.className = "val"; continue; }
+      td.textContent = row.fmt(v);
+      td.className = "val" + (row.warn(v) ? " warn" : "");
+    }
+  }
 
   // faults
   const fi = document.getElementById("faultinfo");
   if (s.fault?.length) {
-    fi.innerHTML = `<span class="badge badge-err">故障: ${s.fault.map(f=>`J${f.joint}:0x${f.err_code.toString(16)}`).join(" ")}</span>`;
+    const names = {0:"失能",9:"欠压",0xA:"过流",0xB:"MOS过温",0xC:"线圈过温"};
+    fi.innerHTML = `<span class="badge badge-err">故障: ${s.fault.map(f=>`J${f.joint}:${names[f.err_code]||"0x"+f.err_code.toString(16)}`).join("  ")}</span>`;
   } else {
     fi.innerHTML = `<span style="color:#4ecca3;font-size:11px">✓ 无故障</span>`;
-  }
-
-  // temps
-  if (s.temps) {
-    const tstr = s.temps.map((t,i)=>`J${i+1}:${t.mos_temp}°/${t.coil_temp}°`).join(" ");
-    fi.innerHTML += ` <span style="font-size:11px;color:#666;margin-left:8px">温度: ${tstr}</span>`;
   }
 }
 
@@ -354,7 +398,7 @@ window.doDisconnect = () => {
 
 // ── joint motion ──
 window.setPreset = (q) => { for (let i=0;i<7;i++) document.getElementById("tg_"+(i+1)).value=q[i]; };
-window.syncTargets = () => { for (let i=0;i<7;i++) { const v = document.getElementById("jg_"+(i+1))?.textContent; if (v&&v!=="--") document.getElementById("tg_"+(i+1)).value=v; } };
+window.syncTargets = () => { for (let i=0;i<7;i++) { const v = document.getElementById("sc_q_"+i)?.textContent; if (v&&v!=="--") document.getElementById("tg_"+(i+1)).value=v; } };
 
 window.doMovej = async () => {
   if (!arm) return;
