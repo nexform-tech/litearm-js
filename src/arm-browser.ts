@@ -321,6 +321,29 @@ export class Arm {
     return new DeviceProxy(deviceId, (method, kwargs) => this._rpc(`device.${deviceId}.${method}`, kwargs));
   }
 
+  /**
+   * List all active device plugins with their manifests.
+   *
+   * Probes known device IDs for get_plugin_manifest, returns
+   * the manifest for each device that responds successfully.
+   *
+   * @param deviceIds - Device IDs to probe (default: ["hand_0","gripper_0"])
+   */
+  async listPlugins(deviceIds: string[] = ["hand_0","gripper_0"]): Promise<any[]> {
+    const results: any[] = [];
+    for (const id of deviceIds) {
+      try {
+        const manifest = await this._rpc(`device.${id}.get_plugin_manifest`, {});
+        if (manifest && !(manifest as any).error) {
+          results.push(manifest);
+        }
+      } catch {
+        // Device not running — skip silently
+      }
+    }
+    return results;
+  }
+
   // ── Hand control (便捷方法，内部走 device proxy) ────────────────────────
 
   /** Connect to the dexterous hand. */

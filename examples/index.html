@@ -162,27 +162,8 @@ input[type=number] { width: 80px; text-align: center; }
     </div>
   </div>
 
-  <!-- ── 灵巧手控制 ── -->
-  <div class="card">
-    <h2 class="collapsible" onclick="toggleSection(this)">🤚 灵巧手控制 (Hand)</h2>
-    <div class="collapse-body">
-      <div class="row">
-        <select id="htype"><option value="right" selected>右手</option><option value="left">左手</option></select>
-        <select id="hj"><option value="L10" selected>L10</option><option value="L6">L6</option><option value="L7">L7</option><option value="L20">L20</option><option value="L25">L25</option><option value="G20">G20</option></select>
-        <button class="btn btn-c" onclick="doHandConnect()">连接手</button>
-        <button class="btn btn-s" onclick="doHandDisconnect()">断开</button>
-        <span id="hs" style="font-size:11px;color:#888;margin-left:8px">状态: --</span>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button class="btn btn-m" onclick="doHandOpen()">🖐 张开</button>
-        <button class="btn btn-m" onclick="doHandClose()">✊ 闭合</button>
-        <select id="hg" onchange="doHandGesture()"><option value="">-- 手势 --</option></select>
-        <button class="btn btn-p" onclick="doHandGetState()">刷新状态</button>
-        <button class="btn btn-d" onclick="doHandClearFaults()">清故障</button>
-      </div>
-      <div id="hinfo" style="margin-top:6px;font-size:11px"></div>
-    </div>
-  </div>
+  <!-- ── 设备插件面板 (动态生成) ── -->
+  <div id="plugin-panels"></div>
 
   <!-- ── 末端负载 ── -->
   <div class="card">
@@ -288,7 +269,7 @@ input[type=number] { width: 80px; text-align: center; }
 </div>
 
 <script type="module">
-import { Arm } from "/dist/litearm.mjs?v=6";
+import { Arm, PluginPanelRenderer } from "/dist/litearm.mjs?v=7";
 
 let arm = null, timer = 0;
 
@@ -408,6 +389,8 @@ window.doConnect = async () => {
       const g = await arm.getGains();
       document.getElementById("gaininfo").textContent = `kp=[${g.kp.map(v=>Number(v).toFixed(1))}]  kd=[${g.kd.map(v=>Number(v).toFixed(2))}]`;
     } catch {}
+    // 加载设备插件面板
+    setTimeout(initPluginPanels, 800);
   } catch(e) { log("连接失败: " + e.message, "e"); }
 };
 
@@ -742,7 +725,39 @@ window.doEstop = () => {
   log("🚨 急停已发送", "e");
 };
 
-// ── hand control ──
+// ── plugin panels ──
+const _pluginRenderers = [];
+
+async function initPluginPanels() {
+  if (!arm?.connected) return;
+  try {
+    const manifests = await arm.listPlugins(["hand_0","gripper_0"]);
+    if (!manifests.length) { log("未发现设备插件","w"); return; }
+    const container = document.getElementById("plugin-panels");
+    container.innerHTML = "";
+    _pluginRenderers.length = 0;
+
+    for (const m of manifests) {
+      const deviceId = m.plugin_id.split(".").pop();
+      const rpcFn = (method, kwargs) => arm.device(deviceId).call(method, kwargs);
+      const renderer = new PluginPanelRenderer(container, rpcFn, log, "");
+      renderer.render(m);
+      _pluginRenderers.push({ renderer, manifest: m, deviceId });
+
+      // Poll state
+      const poll = async () => {
+        if (!arm?.connected) return;
+        try {
+          const state = await arm.device(deviceId).call(m.state_method);
+          renderer.updateState(state);
+        } catch {}
+      };
+      setInterval(poll, 500);
+      log(`✓ 插件: ${m.name} (${m.plugin_id})`);
+    }
+  } catch(e) { log("插件加载失败: "+e.message,"e"); }
+}
+
 (async function initHandGestures() {
   // Populate gesture dropdown
   try {
