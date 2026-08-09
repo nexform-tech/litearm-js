@@ -323,47 +323,37 @@ export class Arm {
 
   /**
    * List all active device plugins with their manifests.
-   *
-   * Probes known device IDs for get_plugin_manifest, returns
-   * the manifest for each device that responds successfully.
-   *
-   * @param deviceIds - Device IDs to probe (default: ["hand_0","gripper_0"])
+   * Probes known device IDs for get_plugin_manifest.
    */
   async listPlugins(deviceIds: string[] = ["hand_0","gripper_0"]): Promise<any[]> {
     const results: any[] = [];
     for (const id of deviceIds) {
       try {
         const manifest = await this._rpc(`device.${id}.get_plugin_manifest`, {});
-        if (manifest && !(manifest as any).error) {
-          results.push(manifest);
-        }
-      } catch {
-        // Device not running — skip silently
-      }
+        if (manifest && !(manifest as any).error) results.push(manifest);
+      } catch { /* skip */ }
     }
     return results;
   }
 
-  // ── Hand control (便捷方法，内部走 device proxy) ────────────────────────
+  // ── Plugin management ───────────────────────────────────────────────
 
-  /** Connect to the dexterous hand. */
-  async handConnect(handType = "right", handJoint = "L10", canIface = "can0"): Promise<Record<string, unknown>> {
-    return this.device("hand_0").call("connect", { hand_type: handType, hand_joint: handJoint, can_iface: canIface });
+  /** List plugins available from the registry. */
+  async listAvailablePlugins(): Promise<any[]> { return this._rpc("list_available_plugins"); }
+  /** List locally installed plugins. */
+  async listInstalledPlugins(): Promise<any[]> { return this._rpc("list_installed_plugins"); }
+  /** Install a plugin from the registry. */
+  async installPlugin(pluginId: string): Promise<any> { return this._rpc("install_plugin", { plugin_id: pluginId }); }
+  /** Uninstall a plugin. */
+  async uninstallPlugin(pluginId: string): Promise<any> { return this._rpc("uninstall_plugin", { plugin_id: pluginId }); }
+  /** Get active device map. */
+  async getActiveDevices(): Promise<any> { return this._rpc("get_active_devices"); }
+  /** Enable a device (install + start daemon). */
+  async setActiveDevice(pluginId: string, deviceId: string, canIface: string): Promise<any> {
+    return this._rpc("set_active_device", { plugin_id: pluginId, device_id: deviceId, can_iface: canIface });
   }
-  async handOpen(speed?: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("open"); }
-  async handClose(speed?: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("close"); }
-  async handSetGesture(gesture: string, speed?: number[]): Promise<Record<string, unknown>> {
-    return this.device("hand_0").call("set_gesture", { gesture, speed });
-  }
-  async handFingerMove(pose: number[], speed?: number[]): Promise<Record<string, unknown>> {
-    return this.device("hand_0").call("finger_move", { pose, speed });
-  }
-  async handSetSpeed(speed: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("set_speed", { speed }); }
-  async handSetTorque(torque: number[]): Promise<Record<string, unknown>> { return this.device("hand_0").call("set_torque", { torque }); }
-  async handGetState(): Promise<Record<string, unknown>> { return this.device("hand_0").call("get_state"); }
-  async handClearFaults(): Promise<Record<string, unknown>> { return this.device("hand_0").call("clear_faults"); }
-  async handListGestures(): Promise<Record<string, unknown>> { return this.device("hand_0").call("list_gestures"); }
-  async handDisconnect(): Promise<Record<string, unknown>> { return this.device("hand_0").call("disconnect"); }
+  /** Disable a device (stop daemon). */
+  async removeActiveDevice(deviceId: string): Promise<any> { return this._rpc("remove_active_device", { device_id: deviceId }); }
 
   // ── Parameter tuning ──────────────────────────────────────────────────
 

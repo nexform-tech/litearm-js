@@ -730,9 +730,10 @@ const _pluginRenderers = [];
 
 async function initPluginPanels() {
   if (!arm?.connected) return;
+
+  // ── 1. 已连接的活跃设备面板 ──
   try {
     const manifests = await arm.listPlugins(["hand_0","gripper_0"]);
-    if (!manifests.length) { log("未发现设备插件","w"); return; }
     const container = document.getElementById("plugin-panels");
     container.innerHTML = "";
     _pluginRenderers.length = 0;
@@ -743,91 +744,101 @@ async function initPluginPanels() {
       const renderer = new PluginPanelRenderer(container, rpcFn, log, "");
       renderer.render(m);
       _pluginRenderers.push({ renderer, manifest: m, deviceId });
-
-      // Poll state
       const poll = async () => {
         if (!arm?.connected) return;
-        try {
-          const state = await arm.device(deviceId).call(m.state_method);
-          renderer.updateState(state);
-        } catch {}
+        try { const state = await arm.device(deviceId).call(m.state_method); renderer.updateState(state); } catch {}
       };
       setInterval(poll, 500);
-      log(`✓ 插件: ${m.name} (${m.plugin_id})`);
+      log(`✓ 插件活跃: ${m.name}`);
     }
-  } catch(e) { log("插件加载失败: "+e.message,"e"); }
+  } catch(e) { log("插件加载: "+e.message,"w"); }
+
+  // ── 2. 插件管理面板 ──
+  try {
+    const [installed, active] = await Promise.all([
+      arm.listInstalledPlugins().catch(() => []),
+      arm.getActiveDevices().catch(() => ({})),
+    ]);
+    renderPluginManagement(installed, active);
+  } catch(e) { log("插件管理: "+e.message,"w"); }
 }
 
-(async function initHandGestures() {
-  // Populate gesture dropdown
-  try {
-    // static list matches server-side _GESTURE_PRESETS
-    const gestures = ["open","close","pinch","point","ok","rock","peace","fist","thumb_up"];
-    const sel = document.getElementById("hg");
-    gestures.forEach(g => { const o = document.createElement("option"); o.value = g; o.textContent = g; sel.appendChild(o); });
-  } catch {}
-})();
+function renderPluginManagement(installed, active) {
+  let container = document.getElementById("plugin-mgmt");
+  if (!container) {
+    const panels = document.getElementById("plugin-panels");
+    container = document.createElement("div");
+    container.id = "plugin-mgmt";
+    container.className = "card";
+    panels.appendChild(container);
+  }
 
-async function pollHandState() {
-  if (!arm?.connected) return;
-  try {
-    const s = await arm.handGetState();
-    if (!s || s.connected === false) {
-      document.getElementById("hs").innerHTML = '<span style="color:#e94560">未连接</span>';
-      document.getElementById("hinfo").innerHTML = "";
-      return;
-    }
-    document.getElementById("hs").innerHTML = `<span style="color:#4ecca3">✓ ${s.type||"?"} 固件:${s.version||"?"}</span>`;
-    const pos = (s.position||[]).map(v=>Number(v).toFixed(0)).join(",");
-    const tmp = (s.temperature||[]).map(v=>v+"°").join(",");
-    document.getElementById("hinfo").innerHTML =
-      `<span class="kv"><span class="k">位置:</span><span class="v">[${pos}]</span></span>` +
-      `<span class="kv"><span class="k">温度:</span><span class="v">[${tmp}]</span></span>` +
-      (s.fault?.length ? `<span class="badge badge-err">故障: ${s.fault}</span>` : "");
-  } catch(e) { /* ignore poll errors */ }
+  const installedMap = {};
+  for (const p of installed) installedMap[p.plugin_id] = p;
+
+  container.innerHTML = `
+    <h2 class="collapsible" onclick="toggleSection(this)">🔌 设备插件管理
+      <span style="font-size:11px;color:#666;margin-left:8px">已安装 ${installed.length} 个</span>
+    </h2>
+    <div class="collapse-body">
+      <div class="row" style="margin-bottom:8px">
+        <select id="pmsel" style="flex:1;max-width:200px">
+          <option value="">-- 选择插件 --</option>
+          ${installed.map(p => `<option value="${p.plugin_id}">${p.icon||'🔧'} ${p.name} ${p.version||''}</option>`).join('')}
+        </select>
+        <input type="text" id="pmdev" placeholder="设备ID" style="width:80px" value="hand_0">
+        <input type="text" id="pmcan" placeholder="CAN接口" style="width:60px" value="can0">
+        <button class="btn btn-c" onclick="doEnableDevice()">启用</button>
+      </div>
+      <div class="row">
+        <button class="btn btn-p" onclick="doListAvailable()">浏览商店</button>
+        <button class="btn btn-p" onclick="doRefreshPlugins()">刷新</button>
+      </div>
+      <div id="plugin-store" style="margin-top:8px;font-size:11px"></div>
+    </div>`;
+
+  // Show active devices
+  const activeKeys = Object.keys(active||{});
+  if (activeKeys.length) {
+    const adiv = document.getElementById("plugin-store");
+    adiv.innerHTML = `<div style="color:#4ecca3">✓ 活跃设备: ${activeKeys.map(k => `${k}=${active[k].plugin_id} (PID ${active[k].pid})`).join(', ')}</div>`;
+  }
 }
-// Poll hand state every 500ms when connected
-setInterval(() => { if (arm?.connected && document.getElementById("hs")?.textContent?.includes("✓")) pollHandState(); }, 500);
 
-window.doHandConnect = async () => {
-  if (!arm) return;
-  const ht = document.getElementById("htype").value;
-  const hj = document.getElementById("hj").value;
-  log(`hand_connect type=${ht} joint=${hj} ...`);
-  try { const r = await arm.handConnect(ht, hj); log("✓ "+JSON.stringify(r)); pollHandState(); }
-  catch(e) { log("✗ "+e.message,"e"); }
+window.doEnableDevice = async () => {
+  const pid = document.getElementById("pmsel").value;
+  const dev = document.getElementById("pmdev").value;
+  const can = document.getElementById("pmcan").value;
+  if (!pid || !dev) return log("请选择插件和填写设备ID","w");
+  log(`启用 ${pid} → ${dev} (${can})...`);
+  try {
+    const r = await arm.setActiveDevice(pid, dev, can);
+    log("✓ "+JSON.stringify(r));
+    setTimeout(initPluginPanels, 1500);
+  } catch(e) { log("✗ "+e.message,"e"); }
 };
-window.doHandDisconnect = async () => {
-  if (!arm) return;
-  try { const r = await arm.handDisconnect(); log("✓ "+JSON.stringify(r)); document.getElementById("hs").innerHTML='<span style="color:#e94560">未连接</span>'; }
-  catch(e) { log("✗ "+e.message,"e"); }
+window.doListAvailable = async () => {
+  try {
+    const plugins = await arm.listAvailablePlugins();
+    const div = document.getElementById("plugin-store");
+    div.innerHTML = plugins.map(p =>
+      `<div style="margin:4px 0;padding:4px 8px;background:#1a1a2e;border-radius:4px;display:flex;align-items:center;gap:8px">
+        <span>${p.icon||'🔧'} <b>${p.name}</b> ${p.version||''} — ${p.vendor||''}</span>
+        <button class="btn btn-p" style="padding:2px 8px;font-size:10px;margin-left:auto"
+          onclick="doInstall('${p.plugin_id}')">安装</button>
+      </div>`
+    ).join('') || '<div style="color:#888">未连接 Registry 或无可用插件</div>';
+  } catch(e) { log("✗ "+e.message,"e"); }
 };
-window.doHandOpen = async () => {
-  if (!arm) return;
-  try { const r = await arm.handOpen(); log("✓ hand_open"); setTimeout(pollHandState,200); }
-  catch(e) { log("✗ "+e.message,"e"); }
+window.doInstall = async (pid) => {
+  log(`安装 ${pid} ...`);
+  try {
+    const r = await arm.installPlugin(pid);
+    log("✓ "+JSON.stringify(r));
+    setTimeout(initPluginPanels, 500);
+  } catch(e) { log("✗ "+e.message,"e"); }
 };
-window.doHandClose = async () => {
-  if (!arm) return;
-  try { const r = await arm.handClose(); log("✓ hand_close"); setTimeout(pollHandState,200); }
-  catch(e) { log("✗ "+e.message,"e"); }
-};
-window.doHandGesture = async () => {
-  const g = document.getElementById("hg").value;
-  if (!g || !arm) return;
-  try { const r = await arm.handSetGesture(g); log("✓ hand_set_gesture "+g); setTimeout(pollHandState,300); }
-  catch(e) { log("✗ "+e.message,"e"); }
-};
-window.doHandGetState = async () => {
-  if (!arm) return;
-  try { const r = await arm.handGetState(); log("✓ hand state: "+JSON.stringify(r)); pollHandState(); }
-  catch(e) { log("✗ "+e.message,"e"); }
-};
-window.doHandClearFaults = async () => {
-  if (!arm) return;
-  try { const r = await arm.handClearFaults(); log("✓ hand_clear_faults"); }
-  catch(e) { log("✗ "+e.message,"e"); }
-};
+window.doRefreshPlugins = () => { initPluginPanels(); log("已刷新"); };
 
 // ── system ──
 window.doGetSystemStats = async () => {
