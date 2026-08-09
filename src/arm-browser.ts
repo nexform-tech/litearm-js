@@ -355,6 +355,54 @@ export class Arm {
   /** Disable a device (stop daemon). */
   async removeActiveDevice(deviceId: string): Promise<any> { return this._rpc("remove_active_device", { device_id: deviceId }); }
 
+  // ── Extension management (新增) ──────────────────────────────────────
+
+  /** List all installed extensions (plugin + skill + kit). */
+  async listInstalledExtensions(): Promise<any[]> { return this._rpc("list_installed_extensions"); }
+
+  /** Get detail for a single extension. */
+  async getExtensionDetail(extensionId: string): Promise<any> {
+    return this._rpc("get_extension_detail", { extension_id: extensionId });
+  }
+
+  /** Uninstall an extension (with optional cascade). */
+  async uninstallExtension(extensionId: string, cascade = false): Promise<any> {
+    return this._rpc("uninstall_extension", { extension_id: extensionId, cascade });
+  }
+
+  /** Check for extension updates vs registry. */
+  async checkExtensionUpdates(): Promise<any[]> { return this._rpc("check_extension_updates"); }
+
+  /** Install an extension from any source (registry/github/url/local). */
+  async installExtension(extensionId: string, source = ""): Promise<any> {
+    return this._rpc("install_extension", { extension_id: extensionId, source });
+  }
+
+  /** Install an extension from a GitHub URL. */
+  async installFromGithub(url: string): Promise<any> {
+    return this._rpc("install_from_github", { url });
+  }
+
+  /** Install an extension from a direct URL (tar.gz). */
+  async installFromUrl(url: string): Promise<any> {
+    return this._rpc("install_from_url", { url });
+  }
+
+  /** Install a kit with full dependency resolution. */
+  async installKit(extensionId: string, source = ""): Promise<any> {
+    return this._rpc("install_kit", { extension_id: extensionId, source });
+  }
+
+  /** List available extensions from registry (with optional category/search). */
+  async listAvailableExtensions(category = "", search = ""): Promise<any[]> {
+    return this._rpc("list_available_extensions", { category, search });
+  }
+
+  /** Search extensions in registry. */
+  async searchExtensions(query: string): Promise<any[]> {
+    return this._rpc("search_extensions", { query });
+  }
+
   // ── Parameter tuning ──────────────────────────────────────────────────
 
   /** Set PD gains. */
