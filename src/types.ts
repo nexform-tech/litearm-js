@@ -25,7 +25,7 @@ export type ArmStateValue =
 export interface JointFeedbackState {
   joint: number;
   received: number;
-  age_s: number;
+  ageS: number;
   fresh: boolean;
 }
 
@@ -33,8 +33,8 @@ export interface JointFeedbackState {
  * Feedback state for all joints.
  */
 export interface FeedbackState {
-  max_age_s: number;
-  stale_joints: number[];
+  maxAgeS: number;
+  staleJoints: number[];
   joints: JointFeedbackState[];
 }
 
@@ -43,10 +43,10 @@ export interface FeedbackState {
  */
 export interface WatchdogState {
   enabled: boolean;
-  timeout_s: number;
+  timeoutS: number;
   mode: string;
   tripped: boolean;
-  last_kick_age_s: number;
+  lastKickAgeS: number;
 }
 
 /**
@@ -54,15 +54,15 @@ export interface WatchdogState {
  */
 export interface Fault {
   joint: number;
-  err_code: number;
+  errCode: number;
 }
 
 /**
  * Temperature information.
  */
 export interface Temperature {
-  mos_temp: number;
-  coil_temp: number;
+  mosTemp: number;
+  coilTemp: number;
 }
 
 /**
@@ -78,8 +78,8 @@ export interface RobotState {
   state: string;
   feedback?: FeedbackState;
   watchdog?: WatchdogState;
-  robot_serial?: string;
-  config_checksum_sha256?: string;
+  robotSerial?: string;
+  configChecksumSha256?: string;
 }
 
 /**
@@ -130,10 +130,10 @@ export interface TrajectoryFrame {
 export interface JointTrajectory {
   frames: TrajectoryFrame[];
   name?: string;
-  sample_rate_hz?: number;
-  filter_alpha?: number;
-  robot_serial?: string;
-  config_checksum_sha256?: string;
+  sampleRateHz?: number;
+  filterAlpha?: number;
+  robotSerial?: string;
+  configChecksumSha256?: string;
 }
 
 /**

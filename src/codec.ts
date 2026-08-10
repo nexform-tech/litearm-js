@@ -75,39 +75,39 @@ message RobotState {
   string state = 7;
   FeedbackState feedback = 8;
   WatchdogState watchdog = 9;
-  string robot_serial = 10;
-  string config_checksum_sha256 = 11;
+  string robotSerial = 10;
+  string configChecksumSha256 = 11;
 }
 
 message Fault {
   int32 joint = 1;
-  int32 err_code = 2;
+  int32 errCode = 2;
 }
 
 message Temperature {
-  int32 mos_temp = 1;
-  int32 coil_temp = 2;
+  int32 mosTemp = 1;
+  int32 coilTemp = 2;
 }
 
 message FeedbackState {
-  double max_age_s = 1;
+  double maxAgeS = 1;
   repeated JointFeedbackState joints = 2;
-  repeated int32 stale_joints = 3;
+  repeated int32 staleJoints = 3;
 }
 
 message JointFeedbackState {
   int32 joint = 1;
   int32 received = 2;
-  double age_s = 3;
+  double ageS = 3;
   bool fresh = 4;
 }
 
 message WatchdogState {
   bool enabled = 1;
-  double timeout_s = 2;
+  double timeoutS = 2;
   string mode = 3;
   bool tripped = 4;
-  double last_kick_age_s = 5;
+  double lastKickAgeS = 5;
 }
 
 message Estop {

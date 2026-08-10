@@ -25,12 +25,12 @@ initCodecSync();
 
 export interface RobotState {
   q: number[]; dq: number[]; tau: number[];
-  fault: { joint: number; err_code: number }[];
-  errs: number[]; temps: { mos_temp: number; coil_temp: number }[];
-  state: string; robot_serial: string;
-  config_checksum_sha256: string;
-  feedback: { max_age_s: number; stale_joints: number[]; joints: { joint: number; received: number; age_s: number; fresh: boolean }[] };
-  watchdog: { enabled: boolean; timeout_s: number; mode: string; tripped: boolean; last_kick_age_s: number };
+  fault: { joint: number; errCode: number }[];
+  errs: number[]; temps: { mosTemp: number; coilTemp: number }[];
+  state: string; robotSerial: string;
+  configChecksumSha256: string;
+  feedback: { maxAgeS: number; staleJoints: number[]; joints: { joint: number; received: number; ageS: number; fresh: boolean }[] };
+  watchdog: { enabled: boolean; timeoutS: number; mode: string; tripped: boolean; lastKickAgeS: number };
 }
 
 export type Pose = [number[], number[][]];  // [position, rotation_matrix]

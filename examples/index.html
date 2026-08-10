@@ -349,7 +349,7 @@ function pollState() {
   // status badge
   document.getElementById("as").textContent = s.state;
   document.getElementById("as").className = "badge badge-ok";
-  document.getElementById("sr").textContent = `序列号: ${s.robot_serial || "--"}`;
+  document.getElementById("sr").textContent = `序列号: ${s.robotSerial || "--"}`;
 
   // 7 关节 × 6 维度表格
   const data = {
@@ -357,8 +357,8 @@ function pollState() {
     dq:  s.dq?.map(Number)  || [],
     tau: s.tau?.map(Number) || [],
     errs:s.errs?.map(Number)|| [],
-    mt:  s.temps?.map(t=>t.mos_temp)  || [],
-    ct:  s.temps?.map(t=>t.coil_temp) || [],
+    mt:  s.temps?.map(t=>t.mosTemp)  || [],
+    ct:  s.temps?.map(t=>t.coilTemp) || [],
   };
 
   for (const row of ROWS) {
@@ -377,7 +377,7 @@ function pollState() {
   const fi = document.getElementById("faultinfo");
   if (s.fault?.length) {
     const names = {0:"失能",9:"欠压",0xA:"过流",0xB:"MOS过温",0xC:"线圈过温"};
-    fi.innerHTML = `<span class="badge badge-err">故障: ${s.fault.map(f=>`J${f.joint}:${names[f.err_code]||"0x"+f.err_code.toString(16)}`).join("  ")}</span>`;
+    fi.innerHTML = `<span class="badge badge-err">故障: ${s.fault.map(f=>`J${f.joint}:${names[f.errCode]||"0x"+f.errCode.toString(16)}`).join("  ")}</span>`;
   } else {
     fi.innerHTML = `<span style="color:#4ecca3;font-size:11px">✓ 无故障</span>`;
   }
