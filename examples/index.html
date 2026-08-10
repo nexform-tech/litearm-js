@@ -739,29 +739,83 @@ const _pluginRenderers = [];
 
 async function initPluginPanels() {
   if (!arm?.connected) return;
+  const container = document.getElementById("plugin-panels");
+  if (!container) return;
 
-  // ── 1. 已连接的活跃设备面板 ──
+  // 清空 panel 区域但先设置可见提示
+  container.innerHTML = '';
+
   try {
-    const manifests = await arm.listPlugins(["hand_0","gripper_0"]);
-    const container = document.getElementById("plugin-panels");
-    container.innerHTML = "";
-    _pluginRenderers.length = 0;
+    const active = await arm.getActiveDevices();
+    const entries = Object.entries(active || {});
 
-    for (const m of manifests) {
-      const deviceId = m.plugin_id.split(".").pop();
-      const rpcFn = (method, kwargs) => arm.device(deviceId).call(method, kwargs);
-      const renderer = new PluginPanelRenderer(container, rpcFn, log, "");
-      renderer.render(m);
-      _pluginRenderers.push({ renderer, manifest: m, deviceId });
-      const poll = async () => {
-        if (!arm?.connected) return;
-        try { const state = await arm.device(deviceId).call(m.state_method); renderer.updateState(state); } catch {}
-      };
-      setInterval(poll, 500);
-      log(`✓ 插件活跃: ${m.name}`);
+    if (entries.length === 0) {
+      // 安装了的设备可以直接从 manifest 渲染面板
+      // 扫描已安装插件列表，找出有 methods 的 plugin 类型
+      let found = false;
+      try {
+        const installed = await arm.listInstalledExtensions();
+        for (const ext of installed) {
+          if ((ext.manifest_type === 'plugin' || ext.category) && ext.methods && ext.methods.length > 0) {
+            // 自动分配一个 deviceId
+            const deviceId = (ext.plugin_id || ext.extension_id || 'device').replace(/\./g, '_') + '_0';
+            _renderDevicePanel(container, ext, deviceId);
+            found = true;
+          }
+        }
+      } catch(e) { console.warn('scan installed plugins:', e); }
+
+      if (!found) {
+        container.innerHTML = '<div class="card"><p style="color:#888;font-size:12px;padding:8px">暂无活跃设备。<br>在扩展商店中安装插件后点击「启用」即可显示控制面板。</p></div>';
+      }
+      return;
     }
-  } catch(e) { log("插件加载: "+e.message,"w"); }
 
+    for (const [deviceId, info] of entries) {
+      const pluginId = info.plugin_id;
+      // 从已安装扩展获取 manifest
+      let manifest = null;
+      try {
+        const detail = await arm.getExtensionDetail(pluginId);
+        if (detail.ok && detail.detail) manifest = detail.detail;
+      } catch {}
+      if (!manifest) continue;
+
+      _renderDevicePanel(container, manifest, deviceId);
+    }
+  } catch(e) {
+    log("设备面板: " + (e.message || e), "w");
+  }
+}
+
+function _renderDevicePanel(container, manifest, deviceId) {
+  console.log('_renderDevicePanel:', deviceId, 'manifest:', Object.keys(manifest || {}));
+  if (!manifest || !manifest.methods || !manifest.methods.length) {
+    console.warn('_renderDevicePanel: no methods in manifest, skipping');
+    return;
+  }
+  console.log('_renderDevicePanel: methods count:', manifest.methods.length, 'ui_schema:', manifest.ui_schema?.length);
+
+  const rpcFn = (method, kwargs) => arm.device(deviceId).call(method, kwargs);
+  const renderer = new PluginPanelRenderer(container, rpcFn, log, `[${deviceId}] `);
+  try {
+    renderer.render(manifest);
+    _pluginRenderers.push({ renderer, manifest, deviceId });
+    log(`✓ 设备面板: ${manifest.name || deviceId} (${manifest.methods.length} 个方法)`);
+
+    const stateMethod = manifest.state_method || 'get_state';
+    const poll = async () => {
+      if (!arm?.connected) return;
+      try {
+        const state = await arm.device(deviceId).call(stateMethod);
+        renderer.updateState(state);
+      } catch {}
+    };
+    setInterval(poll, 500);
+  } catch(e) {
+    console.error('render error:', e);
+    log(`面板渲染: ${e.message}`, 'w');
+  }
 }
 
 // ── store ──
@@ -771,17 +825,30 @@ let storeRenderer = null;
 
 async function initStore() {
   const container = document.getElementById('store-container');
-  if (!container) return;
+  if (!container) { console.warn('store-container not found'); return; }
+  if (!arm?.connected) { console.warn('arm not connected yet'); return; }
 
-  const { ExtensionStoreRenderer } = await import('./src/plugin-panel.js');
-  storeRenderer = new ExtensionStoreRenderer(
-    container,
-    async (method, kwargs) => {
-      return await arm.call(method, kwargs || {});
-    },
-    (msg, cls) => logMsg(msg, cls)
-  );
-  await storeRenderer.render();
+  try {
+    console.log('initStore: importing ExtensionStoreRenderer...');
+    const mod = await import('/dist/litearm.mjs?v=10');
+    const { ExtensionStoreRenderer } = mod;
+    console.log('initStore: imported OK, creating renderer...');
+    storeRenderer = new ExtensionStoreRenderer(
+      container,
+      async (method, kwargs) => {
+        console.log('store rpc:', method, kwargs);
+        const result = await arm.call(method, kwargs || {});
+        return result;
+      },
+      (msg, cls) => logMsg(msg, cls)
+    );
+    console.log('initStore: calling render()...');
+    await storeRenderer.render();
+    console.log('initStore: render() complete');
+  } catch(e) {
+    console.error('initStore failed:', e);
+    log('商店加载失败: ' + (e.message || e), 'e');
+  }
 }
 
 // ── 安装回调 ─────────────────────────────────────────────────────
@@ -839,16 +906,27 @@ window._doUninstall = async function(eid) {
 };
 
 window._doEnable = async function(eid) {
-  const canIface = prompt('CAN 接口:', 'can0') || 'can0';
-  const deviceId = prompt('设备 ID:', eid.replace('.', '_') + '_0') || (eid.replace('.', '_') + '_0');
-  logMsg(`正在启用 ${eid} → ${deviceId} (${canIface})...`, 'i');
+  logMsg(`正在加载设备面板: ${eid}...`, 'i');
+
   try {
-    const result = await arm.setActiveDevice(eid, deviceId, canIface);
-    if (result.ok) {
-      logMsg(`✓ ${eid} 已启用 (PID ${result.pid})`, 'i');
-      setTimeout(() => initPluginPanels(), 1000);
+    // 1. 尝试启动 device daemon（静默失败 — 没有 CAN 硬件也能看面板）
+    const deviceId = (eid || 'device').replace(/\./g, '_') + '_0';
+    try {
+      const result = await arm.setActiveDevice(eid, deviceId, 'can0');
+      if (result.ok) logMsg(`✓ daemon 已启动 (PID ${result.pid})`, 'i');
+    } catch(e) {
+      logMsg(`⚠ daemon 未启动（面板模式）`, 'w');
+    }
+
+    // 2. 从已安装扩展读取 manifest 并渲染
+    const detail = await arm.getExtensionDetail(eid);
+    if (detail.ok && detail.detail) {
+      const container = document.getElementById('plugin-panels');
+      // 清空提示消息
+      if (container.querySelector('p')) container.innerHTML = '';
+      _renderDevicePanel(container, detail.detail, deviceId);
     } else {
-      logMsg(`✗ ${result.error}`, 'e');
+      logMsg(`✗ 无法读取 ${eid} 的 manifest`, 'e');
     }
   } catch (e) {
     logMsg(`✗ 启用异常: ${e.message || e}`, 'e');

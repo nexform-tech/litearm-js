@@ -2,5 +2,5 @@
 export { Arm } from "./arm-browser";
 export type { RobotState, Pose, MoveJOps, MoveLOps, MoveCOps, MovePOps } from "./arm-browser";
 export { WsTransport, Subscriber } from "./transport-browser";
-export { PluginPanelRenderer } from "./plugin-panel";
-export type { PluginManifest, MethodDef, MethodParam, UISection, StateField } from "./plugin-panel";
+export { PluginPanelRenderer, ExtensionStoreRenderer, showInstallConfirm } from "./plugin-panel";
+export type { PluginManifest, MethodDef, MethodParam, UISection, StateField, ExtensionManifest, KitExtensionRef } from "./plugin-panel";

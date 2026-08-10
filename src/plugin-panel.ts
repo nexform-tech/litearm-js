@@ -510,15 +510,20 @@ export class ExtensionStoreRenderer {
           break;
       }
     } catch (e: any) {
-      content.innerHTML = `<p class="e">加载失败: ${e.message || e}</p>`;
+      console.error('_loadTab error:', tab, e);
+      content.innerHTML = `<p class="e">加载失败: ${e.message || e} (tab=${tab})</p>`;
     }
   }
 
   private async _renderInstalledTab(container: HTMLElement, search: string): Promise<void> {
+    console.log('  [store] _renderInstalledTab start, search:', search);
     const installed: any[] = await this._rpc('list_installed_extensions', {});
+    console.log('  [store] installed:', installed, 'type:', typeof installed, 'isArray:', Array.isArray(installed));
     const active: Record<string, any> = await this._rpc('get_active_devices', {});
+    console.log('  [store] active:', active, 'type:', typeof active);
 
     let filtered = installed || [];
+    console.log('  [store] filtered before search:', filtered.length, 'items');
     if (search) {
       const q = search.toLowerCase();
       filtered = filtered.filter((e: any) =>
@@ -528,9 +533,11 @@ export class ExtensionStoreRenderer {
     }
 
     if (filtered.length === 0) {
+      console.log('  [store] no installed extensions, showing empty message');
       container.innerHTML = '<p style="color:#888">暂无已安装扩展。</p>';
       return;
     }
+    console.log('  [store] rendering', filtered.length, 'cards');
 
     container.innerHTML = '';
     const grid = document.createElement('div');
@@ -544,8 +551,11 @@ export class ExtensionStoreRenderer {
   }
 
   private async _renderStoreTab(container: HTMLElement, search: string): Promise<void> {
+    console.log('  [store] _renderStoreTab start, search:', search);
     const available: any[] = await this._rpc('list_available_extensions', { search });
+    console.log('  [store] available:', available, 'type:', typeof available, 'isArray:', Array.isArray(available));
     const updates: any[] = await this._rpc('check_extension_updates', {});
+    console.log('  [store] updates:', updates, 'type:', typeof updates);
 
     if (!available || available.length === 0) {
       container.innerHTML = '<p style="color:#888">商店暂无可用扩展。</p>';
@@ -574,17 +584,17 @@ export class ExtensionStoreRenderer {
           <div>
             <label>GitHub 地址</label>
             <input id="import-github" type="text" placeholder="https://github.com/user/repo" style="width:100%">
-            <button class="btn btn-p" onclick="(window as any)._doImportGitHub?.()" style="margin-top:6px">安装</button>
+            <button class="btn btn-p" onclick="window._doImportGitHub?.()" style="margin-top:6px">安装</button>
           </div>
           <div>
             <label>直链 URL</label>
             <input id="import-url" type="text" placeholder="https://example.com/ext.tar.gz" style="width:100%">
-            <button class="btn btn-p" onclick="(window as any)._doImportURL?.()" style="margin-top:6px">安装</button>
+            <button class="btn btn-p" onclick="window._doImportURL?.()" style="margin-top:6px">安装</button>
           </div>
           <div style="border-top:1px solid #333;padding-top:10px">
             <label>扩展 ID (从 Registry)</label>
             <input id="import-registry" type="text" placeholder="skill.gentle_grasp" style="width:100%">
-            <button class="btn btn-p" onclick="(window as any)._doImportRegistry?.()" style="margin-top:6px">安装</button>
+            <button class="btn btn-p" onclick="window._doImportRegistry?.()" style="margin-top:6px">安装</button>
           </div>
         </div>
       </div>
@@ -634,23 +644,23 @@ export class ExtensionStoreRenderer {
     if (context === 'installed') {
       let btns = '';
       if (mfType === 'plugin' && !isActive) {
-        btns += `<button class="btn btn-g" onclick="(window as any)._doEnable?.('${eid}')">启用</button>`;
+        btns += `<button class="btn btn-g" onclick="window._doEnable?.('${eid}')">启用</button>`;
       }
       if (mfType === 'kit') {
-        btns += `<button class="btn btn-p" onclick="(window as any)._doKitDetail?.('${eid}')">详情</button>`;
+        btns += `<button class="btn btn-p" onclick="window._doKitDetail?.('${eid}')">详情</button>`;
       }
       if (ext.update_available) {
-        btns += `<button class="btn btn-warn" onclick="(window as any)._doUpdate?.('${eid}')">⬆ 更新</button>`;
+        btns += `<button class="btn btn-warn" onclick="window._doUpdate?.('${eid}')">⬆ 更新</button>`;
       }
-      btns += `<button class="btn btn-d" onclick="(window as any)._doUninstall?.('${eid}')">卸载</button>`;
+      btns += `<button class="btn btn-d" onclick="window._doUninstall?.('${eid}')">卸载</button>`;
       return btns;
     }
 
     // store context — skill preview button deferred to Phase 2
     if (mfType === 'kit') {
-      return `<button class="btn btn-p" onclick="(window as any)._doInstallKit?.('${eid}')">安装套件</button>`;
+      return `<button class="btn btn-p" onclick="window._doInstallKit?.('${eid}')">安装套件</button>`;
     }
-    return `<button class="btn btn-p" onclick="(window as any)._doInstall?.('${eid}')">安装</button>`;
+    return `<button class="btn btn-p" onclick="window._doInstall?.('${eid}')">安装</button>`;
   }
 }
 

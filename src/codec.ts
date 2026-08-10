@@ -196,12 +196,12 @@ function fromProtoJSON(v: Record<string, unknown>): unknown {
   if (v.bytesVal !== undefined) return v.bytesVal;
   if (v.listVal !== undefined) {
     const listVal = v.listVal as { values: Record<string, unknown>[] };
-    return listVal.values.map(item => fromProtoJSON(item));
+    return (listVal.values || []).map(item => fromProtoJSON(item));
   }
   if (v.mapVal !== undefined) {
     const mapVal = v.mapVal as { values: { key: string; value: Record<string, unknown> }[] };
     const result: Record<string, unknown> = {};
-    for (const entry of mapVal.values) {
+    for (const entry of (mapVal.values || [])) {
       result[entry.key] = fromProtoJSON(entry.value);
     }
     return result;
