@@ -496,6 +496,20 @@ export class Arm {
   }
 
   /**
+   * Enable all motors and hold current pose (re-enable after disable).
+   */
+  async enable(): Promise<void> {
+    return this.rpc('enable');
+  }
+
+  /**
+   * Disable all motors (arm will drop under gravity!). CAN stays connected.
+   */
+  async disable(): Promise<void> {
+    return this.rpc('disable');
+  }
+
+  /**
    * Set end-effector payload.
    */
   async setPayload(mass: number, com: [number, number, number] = [0, 0, 0]): Promise<Payload> {

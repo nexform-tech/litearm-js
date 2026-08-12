@@ -93,6 +93,16 @@ arm.requestStop();
 await arm.clearStop();
 ```
 
+#### 使能 / 失能
+
+```typescript
+// 使能全部电机并锁住当前姿态（disable 之后重新使能）
+await arm.enable();
+
+// 失能全部电机 —— ⚠️ 机械臂会在重力作用下坠落！CAN 连接保持，可用 enable() 恢复
+await arm.disable();
+```
+
 #### 参数调节
 
 ```typescript

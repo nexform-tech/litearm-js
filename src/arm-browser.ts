@@ -40,6 +40,27 @@ export interface MoveLOps { speed?: number; settle_s?: number; max_cycles?: numb
 export interface MoveCOps { speed?: number; settle_s?: number; max_cycles?: number; }
 export interface MovePOps { speed?: number; settle_s?: number; max_cycles?: number; }
 
+/** 内置末端类型(list_device_types 返回项)。 */
+export interface DeviceTypeInfo {
+  category: string;   // "gripper" | "hand" | ...
+  subtype: string;    // "litegrip" | "lingxin" | ...
+  name: string;       // 显示名
+  icon: string;
+  model?: string;
+  vendor?: string;
+}
+
+/** 当前末端状态(get_active_device 返回)。 */
+export interface ActiveDeviceInfo {
+  configured: boolean;   // 状态文件是否存在
+  enabled: boolean;      // 用户意图:是否应加载
+  online: boolean;       // daemon 是否在运行
+  category: string;
+  subtype: string;
+  device_id: string;
+  can_iface: string;
+}
+
 // ── Arm ────────────────────────────────────────────────────────────────
 
 export class Arm {
@@ -299,6 +320,12 @@ export class Arm {
   /** Clear estop and return to ready. */
   async clearStop(): Promise<void> { return this._rpc("clear_stop"); }
 
+  /** Enable all motors and hold current pose (re-enable after disable). */
+  async enable(): Promise<void> { return this._rpc("enable"); }
+
+  /** Disable all motors (arm will drop under gravity!). CAN stays connected. */
+  async disable(): Promise<void> { return this._rpc("disable"); }
+
   // ── Device access ─────────────────────────────────────────────────────
 
   /**
@@ -321,86 +348,43 @@ export class Arm {
     return new DeviceProxy(deviceId, (method, kwargs) => this._rpc(`device.${deviceId}.${method}`, kwargs));
   }
 
-  /**
-   * List all active device plugins with their manifests.
-   * Probes known device IDs for get_plugin_manifest.
-   */
-  async listPlugins(deviceIds: string[] = ["hand_0","gripper_0"]): Promise<any[]> {
-    const results: any[] = [];
-    for (const id of deviceIds) {
-      try {
-        const manifest = await this._rpc(`device.${id}.get_plugin_manifest`, {});
-        if (manifest && !(manifest as any).error) results.push(manifest);
-      } catch { /* skip */ }
-    }
-    return results;
+  /** 获取当前已连接末端的 manifest(用于渲染控制面板)。未连接返回 null。 */
+  async getDeviceManifest(deviceId = "end_0"): Promise<any | null> {
+    try {
+      const manifest = await this._rpc(`device.${deviceId}.get_plugin_manifest`, {});
+      if (manifest && !(manifest as any).error) return manifest;
+    } catch { /* not connected */ }
+    return null;
   }
 
-  // ── Plugin management ───────────────────────────────────────────────
+  // ── End-effector management (无插件机制:server 按需 fork device_daemon)──
 
-  /** List plugins available from the registry. */
-  async listAvailablePlugins(): Promise<any[]> { return this._rpc("list_available_plugins"); }
-  /** List locally installed plugins. */
-  async listInstalledPlugins(): Promise<any[]> { return this._rpc("list_installed_plugins"); }
-  /** Install a plugin from the registry. */
-  async installPlugin(pluginId: string): Promise<any> { return this._rpc("install_plugin", { plugin_id: pluginId }); }
-  /** Uninstall a plugin. */
-  async uninstallPlugin(pluginId: string): Promise<any> { return this._rpc("uninstall_plugin", { plugin_id: pluginId }); }
-  /** Get active device map. */
-  async getActiveDevices(): Promise<any> { return this._rpc("get_active_devices"); }
-  /** Enable a device (install + start daemon). */
-  async setActiveDevice(pluginId: string, deviceId: string, canIface: string): Promise<any> {
-    return this._rpc("set_active_device", { plugin_id: pluginId, device_id: deviceId, can_iface: canIface });
-  }
-  /** Disable a device (stop daemon). */
-  async removeActiveDevice(deviceId: string): Promise<any> { return this._rpc("remove_active_device", { device_id: deviceId }); }
-
-  // ── Extension management (新增) ──────────────────────────────────────
-
-  /** List all installed extensions (plugin + skill + kit). */
-  async listInstalledExtensions(): Promise<any[]> { return this._rpc("list_installed_extensions"); }
-
-  /** Get detail for a single extension. */
-  async getExtensionDetail(extensionId: string): Promise<any> {
-    return this._rpc("get_extension_detail", { extension_id: extensionId });
+  /** 列出源码内置的可用末端类型(下拉框数据源)。 */
+  async listDeviceTypes(): Promise<DeviceTypeInfo[]> {
+    return this._rpc("list_device_types");
   }
 
-  /** Uninstall an extension (with optional cascade). */
-  async uninstallExtension(extensionId: string, cascade = false): Promise<any> {
-    return this._rpc("uninstall_extension", { extension_id: extensionId, cascade });
+  /** 连接末端:server fork device_daemon 并等其就绪 + 持久化。 */
+  async connectDevice(
+    category: string, subtype: string,
+    opts: { deviceId?: string; canIface?: string; config?: Record<string, unknown> } = {}
+  ): Promise<{ ok: boolean; device_id?: string; error?: string }> {
+    return this._rpc("connect_device", {
+      category, subtype,
+      device_id: opts.deviceId ?? "end_0",
+      can_iface: opts.canIface ?? "",
+      config: opts.config,
+    });
   }
 
-  /** Check for extension updates vs registry. */
-  async checkExtensionUpdates(): Promise<any[]> { return this._rpc("check_extension_updates"); }
-
-  /** Install an extension from any source (registry/github/url/local). */
-  async installExtension(extensionId: string, source = ""): Promise<any> {
-    return this._rpc("install_extension", { extension_id: extensionId, source });
+  /** 断开末端:停止 daemon + 更新持久化(enabled=false,保留类型)。 */
+  async disconnectDevice(deviceId = "end_0"): Promise<{ ok: boolean }> {
+    return this._rpc("disconnect_device", { device_id: deviceId });
   }
 
-  /** Install an extension from a GitHub URL. */
-  async installFromGithub(url: string): Promise<any> {
-    return this._rpc("install_from_github", { url });
-  }
-
-  /** Install an extension from a direct URL (tar.gz). */
-  async installFromUrl(url: string): Promise<any> {
-    return this._rpc("install_from_url", { url });
-  }
-
-  /** Install a kit with full dependency resolution. */
-  async installKit(extensionId: string, source = ""): Promise<any> {
-    return this._rpc("install_kit", { extension_id: extensionId, source });
-  }
-
-  /** List available extensions from registry (with optional category/search). */
-  async listAvailableExtensions(category = "", search = ""): Promise<any[]> {
-    return this._rpc("list_available_extensions", { category, search });
-  }
-
-  /** Search extensions in registry. */
-  async searchExtensions(query: string): Promise<any[]> {
-    return this._rpc("search_extensions", { query });
+  /** 查询当前末端状态(配置/在线/类型)。 */
+  async getActiveDevice(deviceId = "end_0"): Promise<ActiveDeviceInfo> {
+    return this._rpc("get_active_device", { device_id: deviceId });
   }
 
   // ── Parameter tuning ──────────────────────────────────────────────────
