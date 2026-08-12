@@ -163,15 +163,9 @@ input[type=number] { width: 80px; text-align: center; }
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- 扩展商店 (Extension Store)                                        -->
+  <!-- 末端设备 (End-Effector) — 下拉选类型 → 连接 → 自动渲染控制面板       -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <div id="store-container" class="card">
-    <h2>🔌 扩展商店</h2>
-    <p style="color:#888;font-size:12px">连接后自动加载...</p>
-  </div>
-
-  <!-- Plugin panels (动态渲染的 active device 面板) -->
-  <div id="plugin-panels"></div>
+  <div id="device-selector"></div>
 
   <!-- ── 末端负载 ── -->
   <div class="card">
@@ -277,9 +271,9 @@ input[type=number] { width: 80px; text-align: center; }
 </div>
 
 <script type="module">
-import { Arm, PluginPanelRenderer } from "/dist/litearm.mjs?v=7";
+import { Arm, DeviceSelector } from "/dist/litearm.mjs?v=8";
 
-let arm = null, timer = 0;
+let arm = null, timer = 0, deviceSelector = null;
 
 // ── helpers ──
 function log(msg, cls) {
@@ -397,14 +391,15 @@ window.doConnect = async () => {
       const g = await arm.getGains();
       document.getElementById("gaininfo").textContent = `kp=[${g.kp.map(v=>Number(v).toFixed(1))}]  kd=[${g.kd.map(v=>Number(v).toFixed(2))}]`;
     } catch {}
-    // 加载设备插件面板 + 扩展商店
-    setTimeout(initPluginPanels, 800);
-    setTimeout(() => initStore(), 1200);
+    // 初始化末端设备选择器(下拉来自 server 内置类型;含重启自动恢复的当前末端)
+    setTimeout(initDeviceSelector, 800);
   } catch(e) { log("连接失败: " + e.message, "e"); }
 };
 
 window.doDisconnect = () => {
   clearInterval(timer);
+  if (deviceSelector) { deviceSelector.dispose(); deviceSelector = null; }
+  document.getElementById("device-selector").innerHTML = "";
   arm?.close(); arm = null;
   setConnected(false);
   log("已断开");
@@ -734,268 +729,18 @@ window.doEstop = () => {
   log("🚨 急停已发送", "e");
 };
 
-// ── plugin panels ──
-const _pluginRenderers = [];
-
-async function initPluginPanels() {
+// ── 末端设备选择器 ──
+async function initDeviceSelector() {
   if (!arm?.connected) return;
-  const container = document.getElementById("plugin-panels");
+  const container = document.getElementById("device-selector");
   if (!container) return;
-
-  // 清空 panel 区域但先设置可见提示
-  container.innerHTML = '';
-
   try {
-    const active = await arm.getActiveDevices();
-    const entries = Object.entries(active || {});
-
-    if (entries.length === 0) {
-      // 安装了的设备可以直接从 manifest 渲染面板
-      // 扫描已安装插件列表，找出有 methods 的 plugin 类型
-      let found = false;
-      try {
-        const installed = await arm.listInstalledExtensions();
-        for (const ext of installed) {
-          if ((ext.manifest_type === 'plugin' || ext.category) && ext.methods && ext.methods.length > 0) {
-            // 自动分配一个 deviceId
-            const deviceId = (ext.plugin_id || ext.extension_id || 'device').replace(/\./g, '_') + '_0';
-            _renderDevicePanel(container, ext, deviceId);
-            found = true;
-          }
-        }
-      } catch(e) { console.warn('scan installed plugins:', e); }
-
-      if (!found) {
-        container.innerHTML = '<div class="card"><p style="color:#888;font-size:12px;padding:8px">暂无活跃设备。<br>在扩展商店中安装插件后点击「启用」即可显示控制面板。</p></div>';
-      }
-      return;
-    }
-
-    for (const [deviceId, info] of entries) {
-      const pluginId = info.plugin_id;
-      // 从已安装扩展获取 manifest
-      let manifest = null;
-      try {
-        const detail = await arm.getExtensionDetail(pluginId);
-        if (detail.ok && detail.detail) manifest = detail.detail;
-      } catch {}
-      if (!manifest) continue;
-
-      _renderDevicePanel(container, manifest, deviceId);
-    }
+    deviceSelector = new DeviceSelector(container, arm, log);
+    await deviceSelector.init();
   } catch(e) {
-    log("设备面板: " + (e.message || e), "w");
+    log("末端选择器初始化失败: " + (e.message || e), "e");
   }
 }
-
-function _renderDevicePanel(container, manifest, deviceId) {
-  console.log('_renderDevicePanel:', deviceId, 'manifest:', Object.keys(manifest || {}));
-  if (!manifest || !manifest.methods || !manifest.methods.length) {
-    console.warn('_renderDevicePanel: no methods in manifest, skipping');
-    return;
-  }
-  console.log('_renderDevicePanel: methods count:', manifest.methods.length, 'ui_schema:', manifest.ui_schema?.length);
-
-  const rpcFn = (method, kwargs) => arm.device(deviceId).call(method, kwargs);
-  const renderer = new PluginPanelRenderer(container, rpcFn, log, `[${deviceId}] `);
-  try {
-    renderer.render(manifest);
-    _pluginRenderers.push({ renderer, manifest, deviceId });
-    log(`✓ 设备面板: ${manifest.name || deviceId} (${manifest.methods.length} 个方法)`);
-
-    const stateMethod = manifest.state_method || 'get_state';
-    const poll = async () => {
-      if (!arm?.connected) return;
-      try {
-        const state = await arm.device(deviceId).call(stateMethod);
-        renderer.updateState(state);
-      } catch {}
-    };
-    setInterval(poll, 500);
-  } catch(e) {
-    console.error('render error:', e);
-    log(`面板渲染: ${e.message}`, 'w');
-  }
-}
-
-// ── store ──
-const logMsg = (msg, cls) => log(msg, cls);
-
-let storeRenderer = null;
-
-async function initStore() {
-  const container = document.getElementById('store-container');
-  if (!container) { console.warn('store-container not found'); return; }
-  if (!arm?.connected) { console.warn('arm not connected yet'); return; }
-
-  try {
-    console.log('initStore: importing ExtensionStoreRenderer...');
-    const mod = await import('/dist/litearm.mjs?v=10');
-    const { ExtensionStoreRenderer } = mod;
-    console.log('initStore: imported OK, creating renderer...');
-    storeRenderer = new ExtensionStoreRenderer(
-      container,
-      async (method, kwargs) => {
-        console.log('store rpc:', method, kwargs);
-        const result = await arm.call(method, kwargs || {});
-        return result;
-      },
-      (msg, cls) => logMsg(msg, cls)
-    );
-    console.log('initStore: calling render()...');
-    await storeRenderer.render();
-    console.log('initStore: render() complete');
-  } catch(e) {
-    console.error('initStore failed:', e);
-    log('商店加载失败: ' + (e.message || e), 'e');
-  }
-}
-
-// ── 安装回调 ─────────────────────────────────────────────────────
-
-window._doInstall = async function(eid) {
-  logMsg(`正在安装 ${eid}...`, 'i');
-  try {
-    const result = await arm.installExtension(eid);
-    if (result.ok) {
-      logMsg(`✓ ${eid} 安装成功`, 'i');
-    } else {
-      logMsg(`✗ 安装失败: ${result.error}`, 'e');
-    }
-  } catch (e) {
-    logMsg(`✗ 安装异常: ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doInstallKit = async function(eid) {
-  logMsg(`正在安装 Kit ${eid}...`, 'i');
-  try {
-    const result = await arm.installKit(eid);
-    if (result.ok) {
-      logMsg(`✓ Kit ${eid} 安装完成: ${(result.installed || []).join(', ')}`, 'i');
-    } else {
-      logMsg(`✗ Kit 安装失败: ${result.error}`, 'e');
-    }
-  } catch (e) {
-    logMsg(`✗ Kit 安装异常: ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doUninstall = async function(eid) {
-  if (!confirm(`确认卸载 ${eid}?`)) return;
-  logMsg(`正在卸载 ${eid}...`, 'i');
-  try {
-    const result = await arm.uninstallExtension(eid);
-    if (result.ok) {
-      logMsg(`✓ ${eid} 已卸载`, 'i');
-    } else if (result.dependents) {
-      const cascade = confirm(`${result.prompt}\n\n依赖者: ${result.dependents.join(', ')}\n\n确定级联卸载?`);
-      if (cascade) {
-        const r2 = await arm.uninstallExtension(eid, true);
-        logMsg(r2.ok ? `✓ 级联卸载: ${(r2.removed || []).join(', ')}` : `✗ ${r2.error}`, r2.ok ? 'i' : 'e');
-      }
-    } else {
-      logMsg(`✗ ${result.error}`, 'e');
-    }
-  } catch (e) {
-    logMsg(`✗ 卸载异常: ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doEnable = async function(eid) {
-  logMsg(`正在加载设备面板: ${eid}...`, 'i');
-
-  try {
-    // 1. 尝试启动 device daemon（静默失败 — 没有 CAN 硬件也能看面板）
-    const deviceId = (eid || 'device').replace(/\./g, '_') + '_0';
-    try {
-      const result = await arm.setActiveDevice(eid, deviceId, 'can0');
-      if (result.ok) logMsg(`✓ daemon 已启动 (PID ${result.pid})`, 'i');
-    } catch(e) {
-      logMsg(`⚠ daemon 未启动（面板模式）`, 'w');
-    }
-
-    // 2. 从已安装扩展读取 manifest 并渲染
-    const detail = await arm.getExtensionDetail(eid);
-    if (detail.ok && detail.detail) {
-      const container = document.getElementById('plugin-panels');
-      // 清空提示消息
-      if (container.querySelector('p')) container.innerHTML = '';
-      _renderDevicePanel(container, detail.detail, deviceId);
-    } else {
-      logMsg(`✗ 无法读取 ${eid} 的 manifest`, 'e');
-    }
-  } catch (e) {
-    logMsg(`✗ 启用异常: ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doUpdate = async function(eid) {
-  logMsg(`正在更新 ${eid}...`, 'i');
-  try {
-    const result = await arm.installExtension(eid);
-    logMsg(result.ok ? `✓ ${eid} 更新完成` : `✗ ${result.error}`, result.ok ? 'i' : 'e');
-  } catch (e) {
-    logMsg(`✗ 更新异常: ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doImportGitHub = async function() {
-  const url = document.getElementById('import-github')?.value?.trim();
-  if (!url) { logMsg('请输入 GitHub 地址', 'w'); return; }
-  logMsg(`从 GitHub 安装: ${url}...`, 'i');
-  try {
-    const result = await arm.installFromGithub(url);
-    logMsg(result.ok ? `✓ 安装成功 (${result.extension_id || ''})` : `✗ ${result.error}`, result.ok ? 'i' : 'e');
-  } catch (e) {
-    logMsg(`✗ ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doImportURL = async function() {
-  const url = document.getElementById('import-url')?.value?.trim();
-  if (!url) { logMsg('请输入 URL', 'w'); return; }
-  logMsg(`从 URL 安装: ${url}...`, 'i');
-  try {
-    const result = await arm.installFromUrl(url);
-    logMsg(result.ok ? `✓ 安装成功 (${result.extension_id || ''})` : `✗ ${result.error}`, result.ok ? 'i' : 'e');
-  } catch (e) {
-    logMsg(`✗ ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doImportRegistry = async function() {
-  const eid = document.getElementById('import-registry')?.value?.trim();
-  if (!eid) { logMsg('请输入扩展 ID', 'w'); return; }
-  logMsg(`从 Registry 安装: ${eid}...`, 'i');
-  try {
-    const result = await arm.installExtension(eid);
-    logMsg(result.ok ? '✓ 安装成功' : `✗ ${result.error}`, result.ok ? 'i' : 'e');
-  } catch (e) {
-    logMsg(`✗ ${e.message || e}`, 'e');
-  }
-  if (storeRenderer) storeRenderer.render();
-};
-
-window._doKitDetail = async function(eid) {
-  try {
-    const result = await arm.getExtensionDetail(eid);
-    if (result.ok && result.detail) {
-      const d = result.detail;
-      const exts = (d.extensions || []).map((e) => `  - ${e.extension_id} ${e.version}`).join('\n');
-      alert(`${d.icon || '📦'} ${d.name} v${d.version}\n\n${d.description || ''}\n\n扩展列表:\n${exts || '(无)'}`);
-    }
-  } catch (e) {
-    logMsg(`✗ ${e.message || e}`, 'e');
-  }
-};
 
 // ── system ──
 window.doGetSystemStats = async () => {
