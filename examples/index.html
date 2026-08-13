@@ -163,6 +163,47 @@ input[type=number] { width: 80px; text-align: center; }
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- 主从遥操 (Teleop) — master 发布 / slave 跟随；进入后锁定手动控制     -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="card">
+    <h2 class="collapsible" onclick="toggleSection(this)">🕹️ 主从遥操 (teleop)
+      <span id="teleop-badge" class="badge badge-warn" style="margin-left:8px">未遥操</span>
+    </h2>
+    <div class="collapse-body">
+      <div style="font-size:11px;color:#c00;margin-bottom:6px">
+        ⚠️ 进入遥操后，本机所有手动控制（movej/movel/零重力/阻抗…）都会被 server 拒绝，直到退出。急停始终有效。
+      </div>
+
+      <!-- Master -->
+      <div class="row" style="align-items:center">
+        <button class="btn btn-m" id="bt-master" onclick="doEnterMaster()" disabled>进入 Master（发布）</button>
+        <span style="font-size:11px;color:#666">本臂进零重力，被拖动时发布关节流给 slave</span>
+      </div>
+
+      <!-- Slave -->
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button class="btn btn-m" id="bt-slave" onclick="doEnterSlave()" disabled>进入 Slave（跟随）</button>
+        <label>master 端点</label>
+        <input type="text" id="tl_peer" placeholder="tcp/192.168.1.100:7447" style="width:200px">
+        <label>master arm_id</label>
+        <input type="text" id="tl_master_id" value="armA" style="width:80px">
+      </div>
+      <div class="row" style="margin-top:4px;align-items:center">
+        <label>对齐</label><input type="checkbox" id="tl_align" checked>
+        <label>对齐速度</label><input type="number" id="tl_align_speed" value="0.15" step="0.05" min="0.05" max="1" style="width:70px">
+        <label>watchdog(ms)</label><input type="number" id="tl_watchdog" value="200" step="50" min="50" style="width:70px">
+        <span style="font-size:11px;color:#666">(K/B/限幅缺省用 server 配置)</span>
+      </div>
+
+      <!-- Exit + status -->
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button class="btn btn-s" id="bt-exit" onclick="doExitTeleop()" disabled>退出遥操 (exit_teleop)</button>
+        <span id="teleop-stats" style="font-size:11px;color:#666"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- 末端设备 (End-Effector) — 下拉选类型 → 连接 → 自动渲染控制面板       -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <div id="device-selector"></div>
@@ -271,9 +312,9 @@ input[type=number] { width: 80px; text-align: center; }
 </div>
 
 <script type="module">
-import { Arm, DeviceSelector } from "/dist/litearm.mjs?v=8";
+import { Arm, DeviceSelector } from "/dist/litearm.mjs?v=9";
 
-let arm = null, timer = 0, deviceSelector = null;
+let arm = null, timer = 0, teleopTimer = 0, deviceSelector = null;
 
 // ── helpers ──
 function log(msg, cls) {
@@ -332,6 +373,34 @@ function setConnected(v) {
     else if (id==="bd") el.disabled = !v;
     else el.disabled = !v;
   });
+  // 遥操按钮：断开时全禁用；连接后按遥操状态刷新（见 applyTeleopStatus）
+  if (!v) applyTeleopStatus({ active:false, mode:null, stats:{} });
+}
+
+// ── 遥操状态 → UI（按钮启用/禁用 + 徽章 + stats）──
+// active 为真时：禁用进入按钮、启用退出；为假时反之。
+function applyTeleopStatus(st) {
+  const connected = !!arm?.connected;
+  const active = !!st?.active;
+  const badge = document.getElementById("teleop-badge");
+  if (badge) {
+    badge.textContent = active ? `遥操中 (${st.mode || "?"})` : "未遥操";
+    badge.className = "badge " + (active ? "badge-ok" : "badge-warn");
+  }
+  const bMaster = document.getElementById("bt-master");
+  const bSlave  = document.getElementById("bt-slave");
+  const bExit   = document.getElementById("bt-exit");
+  if (bMaster) bMaster.disabled = !connected || active;
+  if (bSlave)  bSlave.disabled  = !connected || active;
+  if (bExit)   bExit.disabled   = !connected || !active;
+  const stats = document.getElementById("teleop-stats");
+  if (stats) stats.textContent = active && st.stats ? JSON.stringify(st.stats) : "";
+}
+
+async function refreshTeleopStatus() {
+  if (!arm?.connected) return;
+  try { applyTeleopStatus(await arm.getTeleopStatus()); }
+  catch(e) { /* 未连接/一过性错误忽略 */ }
 }
 
 // ── state poll ──
@@ -393,11 +462,15 @@ window.doConnect = async () => {
     } catch {}
     // 初始化末端设备选择器(下拉来自 server 内置类型;含重启自动恢复的当前末端)
     setTimeout(initDeviceSelector, 800);
+    // 遥操状态：连接即查一次（命令行入口可能已进遥操），之后每 1s 刷新
+    refreshTeleopStatus();
+    teleopTimer = setInterval(refreshTeleopStatus, 1000);
   } catch(e) { log("连接失败: " + e.message, "e"); }
 };
 
 window.doDisconnect = () => {
   clearInterval(timer);
+  clearInterval(teleopTimer);
   if (deviceSelector) { deviceSelector.dispose(); deviceSelector = null; }
   document.getElementById("device-selector").innerHTML = "";
   arm?.close(); arm = null;
@@ -727,6 +800,46 @@ window.doClearStop = async () => {
 window.doEstop = () => {
   arm?.requestStop();
   log("🚨 急停已发送", "e");
+};
+
+// ── 主从遥操 ──
+window.doEnterMaster = async () => {
+  if (!arm) return;
+  log("enter_teleop(master) — 本臂进零重力并发布关节流 ...");
+  try {
+    const st = await arm.enterTeleop("master");
+    applyTeleopStatus(st);
+    log(`✓ 已进入 master 遥操（本臂手动控制已锁定）`, "w");
+  } catch(e) { log("✗ 进入 master 失败: " + e.message, "e"); refreshTeleopStatus(); }
+};
+
+window.doEnterSlave = async () => {
+  if (!arm) return;
+  const peer = document.getElementById("tl_peer").value.trim();
+  if (!peer) { log("✗ slave 需要填 master 端点（tl_peer）", "e"); return; }
+  const params = {
+    peer,
+    master_arm_id: document.getElementById("tl_master_id").value.trim() || undefined,
+    align: document.getElementById("tl_align").checked,
+    align_speed: +document.getElementById("tl_align_speed").value || 0.15,
+    watchdog_ms: +document.getElementById("tl_watchdog").value || 200,
+  };
+  log(`enter_teleop(slave) → 连 ${peer}，订阅 ${params.master_arm_id||"(本机 arm_id)"} 的关节流 ...`);
+  try {
+    const st = await arm.enterTeleop("slave", params);
+    applyTeleopStatus(st);
+    log(`✓ 已进入 slave 遥操（本臂手动控制已锁定，跟随 master）`, "w");
+  } catch(e) { log("✗ 进入 slave 失败: " + e.message, "e"); refreshTeleopStatus(); }
+};
+
+window.doExitTeleop = async () => {
+  if (!arm) return;
+  log("exit_teleop — 停跟随 + 解锁 + 就地持位 ...");
+  try {
+    await arm.exitTeleop();
+    await refreshTeleopStatus();
+    log("✓ 已退出遥操（手动控制恢复）");
+  } catch(e) { log("✗ 退出失败: " + e.message, "e"); refreshTeleopStatus(); }
 };
 
 // ── 末端设备选择器 ──

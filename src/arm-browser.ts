@@ -61,6 +61,43 @@ export interface ActiveDeviceInfo {
   can_iface: string;
 }
 
+/** 遥操参数(enter_teleop 传给 server；对应 TeleopManager 构造参数)。 */
+export interface TeleopParams {
+  /** slave: master 网络端点，如 "tcp/192.168.1.100:7447"（slave 必填）。 */
+  peer?: string;
+  /** slave: master 的 arm_id，决定订阅哪个 teleop topic。 */
+  master_arm_id?: string;
+  /** 完整 teleop topic，优先级高于 master_arm_id（一般不用）。 */
+  topic?: string;
+  /** master: pub 频率 Hz（默认 200）。 */
+  pub_hz?: number;
+  /** master: zero_gravity 速度包络系数（默认 2.0）。 */
+  overspeed_factor?: number;
+  /** slave: 跟随刚度 [7]。 */
+  K?: number[];
+  /** slave: 跟随阻尼 [7]。 */
+  B?: number[];
+  /** slave: 目标速度限幅 [7] rad/s。 */
+  speed_limit?: number[];
+  /** slave: 目标加速度限幅 [7] rad/s^2。 */
+  accel_limit?: number[];
+  /** slave: 数据超时阈值 ms（默认 200）。 */
+  watchdog_ms?: number;
+  /** slave: 启动前低速对齐到 master 位置。 */
+  align?: boolean;
+  /** slave: 对齐 movej 速度 rad/s（默认 0.15）。 */
+  align_speed?: number;
+  /** 最大遥操时长 秒（默认不限）。 */
+  duration_s?: number;
+}
+
+/** 遥操状态(get_teleop_status 返回)。 */
+export interface TeleopStatus {
+  active: boolean;                        // 是否处于遥操态（派生自控制环死活）
+  mode: "master" | "slave" | null;       // 当前遥操角色
+  stats: Record<string, unknown>;        // TeleopManager.stats（帧数/fps/watchdog 等）
+}
+
 // ── Arm ────────────────────────────────────────────────────────────────
 
 export class Arm {
@@ -385,6 +422,32 @@ export class Arm {
   /** 查询当前末端状态(配置/在线/类型)。 */
   async getActiveDevice(deviceId = "end_0"): Promise<ActiveDeviceInfo> {
     return this._rpc("get_active_device", { device_id: deviceId });
+  }
+
+  // ── Teleop (主从遥操) ─────────────────────────────────────────────────
+
+  /**
+   * 进入遥操（与命令行 --teleop-mode 共享同一遥操状态）。
+   *
+   * - master：本臂 zero_gravity 采样并 pub 关节流（被 slave 订阅）。
+   * - slave：用 `params.peer` 运行时连 master，订阅其关节流 → joint_follow。
+   *   slave 必须提供 `peer`；`master_arm_id` 决定订阅哪个 topic。
+   *
+   * 进入后 server 拒绝一切手动控制类 RPC（movej/movel/hold...），
+   * 只放行只读 / 急停 / exit_teleop。已在遥操中再调会被拒（TeleopBusyError）。
+   */
+  async enterTeleop(mode: "master" | "slave", params: TeleopParams = {}): Promise<TeleopStatus> {
+    return this._rpc("enter_teleop", { mode, ...params });
+  }
+
+  /** 退出遥操：停跟随 + 解锁 + 机械臂就地持位。幂等。 */
+  async exitTeleop(): Promise<{ active: boolean }> {
+    return this._rpc("exit_teleop");
+  }
+
+  /** 查询当前遥操状态（active / mode / stats）。 */
+  async getTeleopStatus(): Promise<TeleopStatus> {
+    return this._rpc("get_teleop_status");
   }
 
   // ── Parameter tuning ──────────────────────────────────────────────────
