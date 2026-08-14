@@ -572,4 +572,41 @@ export class DeviceProxy {
   async setWidth(width: number): Promise<unknown> { return this.call("set_width", { width }); }
   async getWidth(): Promise<unknown> { return this.call("get_width"); }
   async setForce(force: number): Promise<unknown> { return this.call("set_force", { force }); }
+
+  // ── Gripper teleop（独立夹爪遥操）────────────────────────────────────
+  //
+  // master: 进零重力 + pub 开合度; slave: 连 master IP 订阅并跟随。
+  // 详见 litearm-device gripper_teleop.py。
+
+  /** 进入夹爪遥操。master 无需 peer; slave 需 peer(tcp/ip:port) + masterId。 */
+  async gripperTeleopEnter(opts: {
+    mode: "master" | "slave";
+    peer?: string;
+    masterId?: string;
+    rateHz?: number;
+    kp?: number;
+    kd?: number;
+    align?: boolean;
+    watchdogMs?: number;
+  }): Promise<Record<string, unknown>> {
+    const kwargs: Record<string, unknown> = { mode: opts.mode };
+    if (opts.peer !== undefined) kwargs.peer = opts.peer;
+    if (opts.masterId !== undefined) kwargs.master_id = opts.masterId;
+    if (opts.rateHz !== undefined) kwargs.rate_hz = opts.rateHz;
+    if (opts.kp !== undefined) kwargs.kp = opts.kp;
+    if (opts.kd !== undefined) kwargs.kd = opts.kd;
+    if (opts.align !== undefined) kwargs.align = opts.align;
+    if (opts.watchdogMs !== undefined) kwargs.watchdog_ms = opts.watchdogMs;
+    return this.call("gripper_teleop_enter", kwargs) as Promise<Record<string, unknown>>;
+  }
+
+  /** 退出夹爪遥操,回到手动态。 */
+  async gripperTeleopExit(): Promise<Record<string, unknown>> {
+    return this.call("gripper_teleop_exit") as Promise<Record<string, unknown>>;
+  }
+
+  /** 查询夹爪遥操状态(active/mode/frames/openness/loop_hz/stale)。 */
+  async gripperTeleopStatus(): Promise<Record<string, unknown>> {
+    return this.call("gripper_teleop_status") as Promise<Record<string, unknown>>;
+  }
 }
