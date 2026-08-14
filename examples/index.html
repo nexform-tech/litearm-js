@@ -192,7 +192,21 @@ input[type=number] { width: 80px; text-align: center; }
         <label>对齐</label><input type="checkbox" id="tl_align" checked>
         <label>对齐速度</label><input type="number" id="tl_align_speed" value="0.15" step="0.05" min="0.05" max="1" style="width:70px">
         <label>watchdog(ms)</label><input type="number" id="tl_watchdog" value="200" step="50" min="50" style="width:70px">
-        <span style="font-size:11px;color:#666">(K/B/限幅缺省用 server 配置)</span>
+      </div>
+      <!-- 跟随刚度/阻尼现场调参：大关节 J1-J4 / 腕部 J5-J7 两档。留空=用 server 配置 -->
+      <div class="row" style="margin-top:4px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;color:#4ecca3;font-weight:bold">跟随调参</span>
+        <label title="大关节 J1-J4 刚度 Nm/rad，大→跟得紧">K 大关节</label>
+        <input type="number" id="tl_k_big" value="60" step="5" min="0" max="500" style="width:64px">
+        <label title="腕部 J5-J7 刚度">K 腕部</label>
+        <input type="number" id="tl_k_wrist" value="40" step="5" min="0" max="500" style="width:64px">
+        <label title="大关节 J1-J4 阻尼 Nm·s/rad，大→压过冲/防晃，达妙上限 5">B 大关节</label>
+        <input type="number" id="tl_b_big" value="2.0" step="0.2" min="0" max="5" style="width:64px">
+        <label title="腕部 J5-J7 阻尼">B 腕部</label>
+        <input type="number" id="tl_b_wrist" value="1.5" step="0.2" min="0" max="5" style="width:64px">
+      </div>
+      <div class="row" style="margin-top:2px">
+        <span style="font-size:11px;color:#666">晃/回弹→加大 B；追不上→加大 K；啸叫→降 K。改完重新点"进入 Slave"生效（限幅用 server 配置）</span>
       </div>
 
       <!-- Exit + status -->
@@ -824,7 +838,19 @@ window.doEnterSlave = async () => {
     align_speed: +document.getElementById("tl_align_speed").value || 0.15,
     watchdog_ms: +document.getElementById("tl_watchdog").value || 200,
   };
-  log(`enter_teleop(slave) → 连 ${peer}，订阅 ${params.master_arm_id||"(本机 arm_id)"} 的关节流 ...`);
+  // 跟随 K/B：两档(大关节 J1-J4 / 腕部 J5-J7)展开成 7 元数组。任一档为空则整项不传(用 server 配置)。
+  const kBig = document.getElementById("tl_k_big").value.trim();
+  const kWrist = document.getElementById("tl_k_wrist").value.trim();
+  const bBig = document.getElementById("tl_b_big").value.trim();
+  const bWrist = document.getElementById("tl_b_wrist").value.trim();
+  if (kBig !== "" && kWrist !== "") {
+    params.K = [+kBig, +kBig, +kBig, +kBig, +kWrist, +kWrist, +kWrist];
+  }
+  if (bBig !== "" && bWrist !== "") {
+    params.B = [+bBig, +bBig, +bBig, +bBig, +bWrist, +bWrist, +bWrist];
+  }
+  log(`enter_teleop(slave) → 连 ${peer}，订阅 ${params.master_arm_id||"(本机 arm_id)"}` +
+      (params.K ? `，K=[${kBig}×4,${kWrist}×3] B=[${bBig}×4,${bWrist}×3]` : "") + " ...");
   try {
     const st = await arm.enterTeleop("slave", params);
     applyTeleopStatus(st);
