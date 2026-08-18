@@ -84,6 +84,7 @@ export type {
   RecoverJointLimitsOptions,
   JointImpedanceOptions,
   CartesianImpedanceOptions,
+  JointFollowOptions,
   ReplayJointPathOptions,
   ReplayTrajectoryOptions,
   ReplayTimedTrajectoryOptions,

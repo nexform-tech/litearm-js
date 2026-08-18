@@ -246,6 +246,19 @@ export interface CartesianImpedanceOptions {
 }
 
 /**
+ * Joint follow options (target_provider stays server-side).
+ */
+export interface JointFollowOptions {
+  K?: number[];
+  B?: number[];
+  speed_limit?: number[];
+  accel_limit?: number[];
+  engage_sec?: number;
+  max_cycles?: number;
+  duration_s?: number;
+}
+
+/**
  * Replay joint path options.
  */
 export interface ReplayJointPathOptions {

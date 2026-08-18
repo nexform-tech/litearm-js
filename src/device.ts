@@ -131,6 +131,34 @@ export class RemoteDevice {
     return this.rpc('list_gestures');
   }
 
+  /**
+   * Get device state (device.state_method, aligned with handGetState).
+   */
+  async getState(): Promise<Record<string, unknown>> {
+    return this.rpc('get_state');
+  }
+
+  /**
+   * Per-finger motion (pose = per-finger angles; hand only).
+   */
+  async fingerMove(pose: number[]): Promise<boolean> {
+    return this.rpc('finger_move', { pose });
+  }
+
+  /**
+   * Set per-finger speeds (hand only).
+   */
+  async setSpeed(speed: number[]): Promise<boolean> {
+    return this.rpc('set_speed', { speed });
+  }
+
+  /**
+   * Set per-finger torques (hand only).
+   */
+  async setTorque(torque: number[]): Promise<boolean> {
+    return this.rpc('set_torque', { torque });
+  }
+
   // ── Teach pendant methods ───────────────────────────────────────────────
 
   /**

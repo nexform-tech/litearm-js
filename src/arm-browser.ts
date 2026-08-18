@@ -176,7 +176,7 @@ export class Arm {
     return this._rpc("movej", {
       q_target,
       speed: ops.speed ?? 1.0,
-      settle_s: ops.settle_s ?? 0.5,
+      settle_s: ops.settle_s ?? 1.0,
       ...(ops.max_cycles != null && { max_cycles: ops.max_cycles }),
       ...(ops.allow_start_collision_recovery != null && { allow_start_collision_recovery: ops.allow_start_collision_recovery }),
     });
@@ -290,6 +290,7 @@ export class Arm {
     ops: { duration_s?: number; sample_rate_hz?: number; filter_alpha?: number; name?: string; output?: string } = {}
   ): Promise<Record<string, unknown>> {
     return this._rpc("record_trajectory", {
+      output: ops.output ?? "trajectories",
       duration_s: ops.duration_s,
       sample_rate_hz: ops.sample_rate_hz ?? 100,
       filter_alpha: ops.filter_alpha ?? 0.15,
@@ -346,6 +347,21 @@ export class Arm {
       max_ori_err: ops.max_ori_err,
       measured_overspeed_factor: ops.measured_overspeed_factor,
       vel_max: ops.vel_max,
+    });
+  }
+
+  /** Follow an external target provider (target_provider 留在 server 侧)。 */
+  async jointFollow(
+    ops: {
+      K?: number[]; B?: number[]; speed_limit?: number[]; accel_limit?: number[];
+      engage_sec?: number; max_cycles?: number; duration_s?: number;
+    } = {}
+  ): Promise<boolean> {
+    return this._rpc("joint_follow", {
+      K: ops.K, B: ops.B,
+      speed_limit: ops.speed_limit, accel_limit: ops.accel_limit,
+      engage_sec: ops.engage_sec ?? 0.3,
+      max_cycles: ops.max_cycles, duration_s: ops.duration_s,
     });
   }
 

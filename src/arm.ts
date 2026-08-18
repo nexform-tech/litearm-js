@@ -414,6 +414,31 @@ export class Arm {
     });
   }
 
+  /**
+   * Follow an external target provider (主从跟随/角度透传).
+   *
+   * target_provider 回调留在 server 侧（由遥操管理器注入），SDK 只传跟随参数。
+   */
+  async jointFollow(options: {
+    K?: number[];
+    B?: number[];
+    speed_limit?: number[];
+    accel_limit?: number[];
+    engage_sec?: number;
+    max_cycles?: number;
+    duration_s?: number;
+  } = {}): Promise<boolean> {
+    return this.rpc('joint_follow', {
+      K: options.K,
+      B: options.B,
+      speed_limit: options.speed_limit,
+      accel_limit: options.accel_limit,
+      engage_sec: options.engage_sec ?? 0.3,
+      max_cycles: options.max_cycles,
+      duration_s: options.duration_s,
+    });
+  }
+
   // ── Hand control (灵巧手，便捷方法) ──────────────────────────────────
 
   async handConnect(handType = "right", handJoint = "L10", canIface = "can0"): Promise<Record<string, unknown>> {
@@ -580,6 +605,78 @@ export class Arm {
     return this.rpc('save_trajectory', { id, name, points, duration });
   }
   async deleteTrajectory(id: string): Promise<Record<string, unknown>> { return this.rpc('delete_trajectory', { id }); }
+
+  // ── Device daemon management (server forks device_daemon on demand) ─────
+
+  /**
+   * List built-in end-effector types (dropdown data source).
+   */
+  async listDeviceTypes(): Promise<Record<string, unknown>> {
+    return this.rpc('list_device_types');
+  }
+
+  /**
+   * Connect an end-effector: server forks device_daemon and persists config.
+   */
+  async connectDevice(
+    category: string,
+    subtype: string,
+    deviceId = 'end_0',
+    canIface = '',
+    config: Record<string, unknown> = {}
+  ): Promise<Record<string, unknown>> {
+    return this.rpc('connect_device', {
+      category,
+      subtype,
+      device_id: deviceId,
+      can_iface: canIface,
+      config,
+    });
+  }
+
+  /**
+   * Disconnect an end-effector (stop daemon + update persistence).
+   */
+  async disconnectDevice(deviceId = 'end_0'): Promise<Record<string, unknown>> {
+    return this.rpc('disconnect_device', { device_id: deviceId });
+  }
+
+  /**
+   * Query current end-effector status (config / online / type).
+   */
+  async getActiveDevice(deviceId = 'end_0'): Promise<Record<string, unknown>> {
+    return this.rpc('get_active_device', { device_id: deviceId });
+  }
+
+  // ── Teleoperation (shares state with CLI --teleop-mode) ─────────────────
+
+  /**
+   * Enter teleoperation.
+   * - master: sample zero-gravity and publish the joint stream.
+   * - slave: pass `peer` (master endpoint) + optional `master_arm_id`.
+   *   While active, the server rejects manual-control RPCs (read-only / estop
+   *   / exit_teleop only). Re-entering while already active is rejected.
+   */
+  async enterTeleop(
+    mode: 'master' | 'slave',
+    params: Record<string, unknown> = {}
+  ): Promise<Record<string, unknown>> {
+    return this.rpc('enter_teleop', { mode, ...params });
+  }
+
+  /**
+   * Exit teleoperation: stop follow + unlock + hold in place. Idempotent.
+   */
+  async exitTeleop(): Promise<Record<string, unknown>> {
+    return this.rpc('exit_teleop');
+  }
+
+  /**
+   * Query current teleop status (active / mode / stats).
+   */
+  async getTeleopStatus(): Promise<Record<string, unknown>> {
+    return this.rpc('get_teleop_status');
+  }
 
   // ── Device access ───────────────────────────────────────────────────────
 
