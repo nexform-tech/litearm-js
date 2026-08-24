@@ -18,6 +18,30 @@ Browser ──ws──→ Arm control service
 
 ---
 
+## Table of Contents
+
+- [1. Requirements & Installation](#1-requirements--installation)
+- [2. Quick Start](#2-quick-start)
+- [3. Connection Management](#3-connection-management)
+- [4. API Reference](#4-api-reference)
+  - [4.1 Computation (no motors driven)](#41-computation-no-motors-driven)
+  - [4.2 Motion Control](#42-motion-control-optional-args-in-the-options-object)
+  - [4.3 State Reading](#43-state-reading)
+  - [4.4 Emergency Stop / Enable](#44-emergency-stop--enable)
+  - [4.5 DIRECT Mode — Per-frame MIT Direct Control](#45-direct-mode--per-frame-mit-direct-control)
+  - [4.6 Parameters](#46-parameters)
+  - [4.7 Peripheral Devices](#47-peripheral-devices)
+  - [4.8 Dexterous-hand convenience methods](#48-dexterous-hand-convenience-methods-node-only-hand-prefix)
+  - [4.9 System / Settings](#49-system--settings)
+  - [4.10 Trajectory Management](#410-trajectory-management-server-side-recording--management)
+  - [4.11 End-Effector Device Management](#411-end-effector-device-management)
+  - [4.12 Teleop (master / slave arms)](#412-teleop-master--slave-arms)
+- [5. Exceptions](#5-exceptions)
+- [6. Safety Notes](#6-safety-notes)
+- [7. Server Configuration](#7-server-configuration)
+- [8. FAQ](#8-faq)
+- [9. Development](#9-development)
+
 ## 1. Requirements & Installation
 
 | Item | Requirement |
@@ -120,7 +144,198 @@ armBrowser.connected;                    // browser: connection-state getter
 | `disable()` | ⚠️ Disables all motors (the arm drops under gravity!), CAN stays connected |
 | `clearFaults()` | Clear motor faults → `[motor_id, fault_code][]` |
 
-### 4.5 Parameters
+### 4.5 DIRECT Mode — Per-frame MIT Direct Control
+
+> DIRECT mode is LiteArm's per-frame MIT direct control channel. Send five-parameter
+> (kp/kd/qRef/dqRef/tauFf) commands at a typical 250Hz to control joint motors in real-time,
+> with 4 never-disableable core safety guardrails built in.
+
+**Comparison with ordinary motion control:**
+
+| Feature | Ordinary motion control (`movej` etc.) | DIRECT mode (`sendMit`) |
+| --- | --- | --- |
+| Control method | Target position + velocity, auto-planned | Per-frame 5-parameter MIT command |
+| Frame rate | One call, auto-execution | User loop control (typical 250Hz) |
+| Blocking | Blocking, waits for completion | Non-blocking, returns immediately |
+| Trajectory | Auto-planned + interpolated | User-generated |
+| Guardrails | Built-in limits | 4 core + 3 optional guards |
+
+**Entry and exit:**
+
+- **Entry**: Automatically enters DIRECT mode on the first `sendMit` call
+- **Exit**: `requestStop()` proactive / watchdog timeout auto-hold / motor fault auto-exit
+
+#### sendMit — Send MIT Control Frame
+
+**Description:** Async publish a five-parameter MIT control frame to the arm command channel.
+Async, returns immediately. First call auto-enters DIRECT mode.
+
+**Function Definition:**
+
+```ts
+async sendMit(
+  kp: number[],      // length 7, position stiffness
+  kd: number[],      // length 7, velocity damping
+  qRef: number[],    // length 7, target joint angles (rad)
+  dqRef: number[],   // length 7, target angular velocity (rad/s)
+  tauFf: number[],   // length 7, feedforward torque (N·m)
+): Promise<void>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `kp` | `number[]` | Position stiffness, length 7, range `[0, 500]`. Typical: 15–200 |
+| `kd` | `number[]` | Velocity damping, length 7, range `[0, 5]`. Typical: 0.5–3.0 |
+| `qRef` | `number[]` | Target joint angles (rad), length 7. Inter-frame jumps are slew-limited |
+| `dqRef` | `number[]` | Target angular velocity (rad/s), length 7. Clamped to `±DQ_MAX` |
+| `tauFf` | `number[]` | Feedforward torque (N·m), length 7. Clamped to `±min(guards_tau_max, TAU_MAX)` |
+
+**Return Value:** `Promise<void>` — async send, no acknowledgment.
+
+**Usage Example:**
+
+```ts
+// Single frame (auto-enters DIRECT mode)
+await arm.sendMit(
+  [50, 50, 50, 50, 50, 50, 50],
+  [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+  [0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0],
+);
+```
+
+#### setGuards — Configure Global Guardrails
+
+**Description:** One-time global guardrail configuration (RPC). All fields optional — omit to leave
+unchanged. **Globally persistent**: not reset on DIRECT exit.
+
+**Function Definition:**
+
+```ts
+async setGuards(opts?: {
+  slewLimit?: number | null;
+  tauMax?: number | null;
+  watchdogTimeout?: number | null;
+  positionBounds?: boolean | null;
+  velocityBounds?: boolean | null;
+  jerkLimit?: boolean | null;
+}): Promise<unknown>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `slewLimit` | `number` or `null` | Global slew rate limit (rad/s). `null`/`undefined` = no change |
+| `tauMax` | `number` or `null` | Global torque limit (N·m). `null`/`undefined` = no change |
+| `watchdogTimeout` | `number` or `null` | Watchdog timeout (s), range `[0.05, 2.0]` |
+| `positionBounds` | `boolean` or `null` | Enable position soft-limits. Default `false` |
+| `velocityBounds` | `boolean` or `null` | Enable velocity soft-limits. Default `false` |
+| `jerkLimit` | `boolean` or `null` | Enable jerk limiting. Default `false` |
+
+**Usage Example:**
+
+```ts
+// Combined configuration
+await arm.setGuards({
+  slewLimit: 1.0,
+  tauMax: 10.0,
+  watchdogTimeout: 0.10,
+  positionBounds: true,
+});
+```
+
+#### getGuards — Read Current Guardrail Configuration
+
+**Description:** Read the currently active guardrail configuration (RPC, synchronous).
+
+**Function Definition:**
+
+```ts
+async getGuards(): Promise<unknown>
+```
+
+**Return Value:**
+
+```json
+{
+  "slew_limit": 1.0,
+  "tau_max": 10.0,
+  "watchdog_timeout": 0.10,
+  "position_bounds": true,
+  "velocity_bounds": false,
+  "jerk_limit": false
+}
+```
+
+**Usage Example:**
+
+```ts
+const guards = await arm.getGuards() as Record<string, unknown>;
+console.log('slew_limit:', guards.slew_limit);
+```
+
+#### Full Control Loop Example
+
+```ts
+/** DIRECT mode 250Hz control loop — sine wave on joint 1. */
+import { Arm } from 'litearm-js';
+
+const DT = 0.004;  // 4ms → 250Hz
+const FREQ = 0.5;
+const AMP = 0.5;
+const N = 7;
+
+async function main() {
+  const arm = new Arm({ endpoint: 'tcp/192.168.1.100:7447', armId: 'armA' });
+  await arm.connect();
+
+  await arm.setGuards({
+    slewLimit: 2.0, tauMax: 20.0, watchdogTimeout: 0.10, positionBounds: true,
+  });
+
+  let t = 0.0;
+  const interval = setInterval(async () => {
+    const qRef = Array.from({ length: N }, (_, i) =>
+      i === 0 ? AMP * Math.sin(2 * Math.PI * FREQ * t) : 0.0
+    );
+    await arm.sendMit(
+      Array(N).fill(50.0), Array(N).fill(1.5), qRef,
+      Array(N).fill(0.0), Array(N).fill(0.0),
+    );
+    t += DT;
+  }, DT * 1000);
+
+  setTimeout(async () => {
+    clearInterval(interval);
+    await arm.requestStop();
+    console.log('DIRECT mode exited');
+    process.exit(0);
+  }, 30000);
+}
+
+main().catch(console.error);
+```
+
+#### Safety Guardrails
+
+| Guardrail | Description | Disableable? |
+| --- | --- | --- |
+| **Guard 1: Protocol param clamp** | kp≤500, kd≤5, dq_ref≤DQ_MAX, tau_ff≤TAU_MAX | Never |
+| **Guard 2: Command slew limit** | Inter-frame q_ref jump ≤ slew_limit × dt, dt capped at 0.10s | Never; `slewLimit` can be tightened |
+| **Guard 3: Watchdog fail-soft** | Command interruption → auto-hold (low-stiffness PD, kp=35, kd=1.2) | Never; `watchdogTimeout` adjustable |
+| **Guard 4: Single ownership** | Rejects motion commands and teleop while DIRECT active | Never |
+| **Position bounds (optional)** | q_ref clamped to joint soft-limits per frame | Off by default; `positionBounds: true` |
+| **Velocity bounds (optional)** | dq_ref clamped to `±DQ_MAX` per frame | Off by default; `velocityBounds: true` |
+| **Jerk limit (optional)** | dq_ref change rate limited per frame | Off by default; `jerkLimit: true` |
+
+> **Safety bottom line: The arm must never fly away.**
+> Command slew limit + single ownership + watchdog fail-soft + firmware fallback.
+
+### 4.6 Parameters
 
 | Method | Description |
 |---|---|
@@ -128,7 +343,7 @@ armBrowser.connected;                    // browser: connection-state getter
 | `setPayload(mass, com=[0,0,0])` / `getPayload()` | End-effector payload (mass + center of mass) |
 | `setInstallation({ base_rpy?, gravity? })` / `getInstallation()` | Mounting orientation (base RPY or gravity vector) |
 
-### 4.6 Peripheral Devices
+### 4.7 Peripheral Devices
 
 Unified entry `arm.device(deviceId)`; methods route to the device's
 `device.{deviceId}.{method}` interface.
@@ -155,14 +370,14 @@ await teach.getJoints(); await teach.getButtons();
 > `device()` returns a `DeviceProxy` (same method set, plus the gripper-teleop
 > methods `gripperTeleopEnter/Exit/Status`).
 
-### 4.7 Dexterous-hand convenience methods (Node only, `hand*` prefix)
+### 4.8 Dexterous-hand convenience methods (Node only, `hand*` prefix)
 
 `handConnect(handType="right", handJoint="L10", canIface="can0")`, `handOpen()`,
 `handClose()`, `handSetGesture(gesture)`, `handFingerMove(pose)`,
 `handSetSpeed(speed)`, `handSetTorque(torque)`, `handGetState()`,
 `handClearFaults()`, `handListGestures()`, `handDisconnect()`.
 
-### 4.8 System / Settings
+### 4.9 System / Settings
 
 | Method | Description |
 |---|---|
@@ -175,7 +390,7 @@ Settings: `getJointLimits/setJointLimits(limits)`,
 `getCartesianLimits/setCartesianLimits(limits)`,
 `getCollisionConfig/setCollisionConfig(config)`.
 
-### 4.9 Trajectory Management (server-side recording & management)
+### 4.10 Trajectory Management (server-side recording & management)
 
 ```typescript
 await arm.startRecording(); await arm.getRecordingState();
@@ -186,7 +401,7 @@ await arm.deleteTrajectory('t1');
 await arm.getPlaybackState();
 ```
 
-### 4.10 End-Effector Device Management
+### 4.11 End-Effector Device Management
 
 ```typescript
 await arm.listDeviceTypes();
@@ -198,7 +413,7 @@ await arm.disconnectDevice('end_0');
 > In the browser, `connectDevice` packs deviceId/canIface/config into one `opts`
 > object.
 
-### 4.11 Teleop (master / slave arms)
+### 4.12 Teleop (master / slave arms)
 
 ```typescript
 await arm.enterTeleop('master');                                // this arm samples & publishes

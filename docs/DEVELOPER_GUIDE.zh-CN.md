@@ -14,6 +14,30 @@ Node.js ──tcp──→ 机械臂控制服务 ──→ 机械臂 / CAN
 
 ---
 
+## 目录
+
+- [1. 环境要求与安装](#1-环境要求与安装)
+- [2. 快速开始](#2-快速开始)
+- [3. 连接管理](#3-连接管理)
+- [4. 接口说明](#4-接口说明)
+  - [4.1 计算（不驱动电机）](#41-计算不驱动电机)
+  - [4.2 运动控制](#42-运动控制可选参数放-options-对象)
+  - [4.3 状态读取](#43-状态读取)
+  - [4.4 急停 / 使能](#44-急停--使能)
+  - [4.5 DIRECT 模式 —— 逐帧 MIT 直接控制](#45-direct-模式--逐帧-mit-直接控制)
+  - [4.6 参数调节](#46-参数调节)
+  - [4.7 外设设备](#47-外设设备)
+  - [4.8 灵巧手便捷方法](#48-灵巧手便捷方法node-版专有hand-前缀)
+  - [4.9 系统 / 设置](#49-系统--设置)
+  - [4.10 轨迹管理](#410-轨迹管理服务端录制与管理)
+  - [4.11 末端设备管理](#411-末端设备管理)
+  - [4.12 遥操（主从机械臂）](#412-遥操主从机械臂)
+- [5. 异常处理](#5-异常处理)
+- [6. 安全提示](#6-安全提示)
+- [7. 服务端配置](#7-服务端配置)
+- [8. 常见问题](#8-常见问题)
+- [9. 开发](#9-开发)
+
 ## 1. 环境要求与安装
 
 | 项目 | 要求 |
@@ -113,7 +137,196 @@ armBrowser.connected;                    // 浏览器版：连接状态 getter
 | `disable()` | ⚠️ 失能全部电机（机械臂会掉臂！），CAN 保持连接 |
 | `clearFaults()` | 清除电机故障 → `[motor_id, fault_code][]` |
 
-### 4.5 参数调节
+### 4.5 DIRECT 模式 —— 逐帧 MIT 直接控制
+
+> DIRECT 模式是 LiteArm 的逐帧 MIT 直接控制通道。通过 `sendMit` 以 250Hz 典型频率
+> 发送五参数 (kp/kd/qRef/dqRef/tauFf) 实时控制关节电机，内置 4 条永不关闭的核心安全护栏。
+
+**与普通运动控制的区别：**
+
+| 特性 | 普通运动控制 (`movej` 等) | DIRECT 模式 (`sendMit`) |
+| --- | --- | --- |
+| 控制方式 | 目标位置 + 速度，自动规划 | 逐帧五参数 MIT 命令 |
+| 帧率 | 一次调用，自动执行 | 用户循环控制（典型 250Hz） |
+| 阻塞 | 阻塞，等运动完成 | 非阻塞，立即返回 |
+| 轨迹 | 自动规划 + 插值 | 用户自行生成 |
+| 护栏 | 内置限位/限速 | 4 核心护栏 + 3 可选防护 |
+
+**进入与退出：**
+
+- **进入**：首次调用 `sendMit` 时自动进入 DIRECT 模式
+- **退出**：`requestStop()` 主动退出 / 看门狗超时自动回 hold / 电机故障自动退出
+
+#### sendMit —— 发送 MIT 控制帧
+
+**Description:** 异步 pub 五参数 MIT 控制帧到机械臂命令通道。异步，立即返回。首次调用自动进入 DIRECT 模式。
+
+**Function Definition:**
+
+```ts
+async sendMit(
+  kp: number[],      // 长度 7，位置刚度
+  kd: number[],      // 长度 7，速度阻尼
+  qRef: number[],    // 长度 7，目标关节角度 (rad)
+  dqRef: number[],   // 长度 7，目标角速度 (rad/s)
+  tauFf: number[],   // 长度 7，前馈力矩 (N·m)
+): Promise<void>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `kp` | `number[]` | 位置刚度，长度 7，范围 `[0, 500]`。典型值 15–200 |
+| `kd` | `number[]` | 速度阻尼，长度 7，范围 `[0, 5]`。典型值 0.5–3.0 |
+| `qRef` | `number[]` | 目标关节角度（rad），长度 7。相邻帧跳变受斜率限制 |
+| `dqRef` | `number[]` | 目标角速度（rad/s），长度 7。被 clamp 到 `±DQ_MAX` |
+| `tauFf` | `number[]` | 前馈力矩（N·m），长度 7。被 clamp 到 `±min(guards_tau_max, TAU_MAX)` |
+
+**Return Value:** `Promise<void>` — 异步发送，不等待回执。
+
+**Usage Example:**
+
+```ts
+// 发送单帧（自动进入 DIRECT 模式）
+await arm.sendMit(
+  [50, 50, 50, 50, 50, 50, 50],
+  [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+  [0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0],
+);
+```
+
+#### setGuards —— 配置全局护栏
+
+**Description:** 全局一次性配置护栏参数（RPC）。所有字段可选，不传则不改变。**全局持久**：退出 DIRECT 后不重置。
+
+**Function Definition:**
+
+```ts
+async setGuards(opts?: {
+  slewLimit?: number | null;
+  tauMax?: number | null;
+  watchdogTimeout?: number | null;
+  positionBounds?: boolean | null;
+  velocityBounds?: boolean | null;
+  jerkLimit?: boolean | null;
+}): Promise<unknown>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `slewLimit` | `number` or `null` | 全局斜率限制（rad/s）。`null`/`undefined` = 不改变 |
+| `tauMax` | `number` or `null` | 全局力矩上限（N·m）。`null`/`undefined` = 不改变 |
+| `watchdogTimeout` | `number` or `null` | 看门狗超时（秒），范围 `[0.05, 2.0]` |
+| `positionBounds` | `boolean` or `null` | 是否开启位置软限位。默认 `false` |
+| `velocityBounds` | `boolean` or `null` | 是否开启速度软限位。默认 `false` |
+| `jerkLimit` | `boolean` or `null` | 是否开启加加速度限制。默认 `false` |
+
+**Usage Example:**
+
+```ts
+// 组合配置
+await arm.setGuards({
+  slewLimit: 1.0,
+  tauMax: 10.0,
+  watchdogTimeout: 0.10,
+  positionBounds: true,
+});
+```
+
+#### getGuards —— 读取当前护栏配置
+
+**Description:** 读取当前生效的护栏配置（RPC 同步）。
+
+**Function Definition:**
+
+```ts
+async getGuards(): Promise<unknown>
+```
+
+**Return Value:**
+
+```json
+{
+  "slew_limit": 1.0,
+  "tau_max": 10.0,
+  "watchdog_timeout": 0.10,
+  "position_bounds": true,
+  "velocity_bounds": false,
+  "jerk_limit": false
+}
+```
+
+**Usage Example:**
+
+```ts
+const guards = await arm.getGuards() as Record<string, unknown>;
+console.log('slew_limit:', guards.slew_limit);
+```
+
+#### 完整控制循环示例
+
+```ts
+/** DIRECT 模式 250Hz 控制循环 —— 正弦波扫关节1。 */
+import { Arm } from 'litearm-js';
+
+const DT = 0.004;  // 4ms → 250Hz
+const FREQ = 0.5;  // 正弦波频率 (Hz)
+const AMP = 0.5;   // 幅度 (rad)
+const N = 7;
+
+async function main() {
+  const arm = new Arm({ endpoint: 'tcp/192.168.1.100:7447', armId: 'armA' });
+  await arm.connect();
+
+  // 配置护栏（一次性）
+  await arm.setGuards({
+    slewLimit: 2.0, tauMax: 20.0, watchdogTimeout: 0.10, positionBounds: true,
+  });
+
+  let t = 0.0;
+  const interval = setInterval(async () => {
+    const qRef = Array.from({ length: N }, (_, i) =>
+      i === 0 ? AMP * Math.sin(2 * Math.PI * FREQ * t) : 0.0
+    );
+    await arm.sendMit(
+      Array(N).fill(50.0), Array(N).fill(1.5), qRef,
+      Array(N).fill(0.0), Array(N).fill(0.0),
+    );
+    t += DT;
+  }, DT * 1000);
+
+  // 30 秒后停止
+  setTimeout(async () => {
+    clearInterval(interval);
+    await arm.requestStop();
+    console.log('已退出 DIRECT 模式');
+    process.exit(0);
+  }, 30000);
+}
+
+main().catch(console.error);
+```
+
+#### 安全护栏说明
+
+| 护栏 | 说明 | 可关闭？ |
+| --- | --- | --- |
+| **护栏1：协议参数 clamp** | kp≤500、kd≤5、dq_ref≤DQ_MAX、tau_ff≤TAU_MAX | 不可关闭 |
+| **护栏2：命令通道斜率限制** | 相邻帧 q_ref 跳变 ≤ slew_limit × dt，dt 有上界 0.10s | 不可关闭，`slewLimit` 可收紧 |
+| **护栏3：看门狗 fail-soft** | 命令中断超时自动回 hold | 不可关闭，`watchdogTimeout` 可调 |
+| **护栏4：单一所有权** | DIRECT 激活时拒绝运动命令和遥操 | 不可关闭 |
+| **位置限制（附加）** | q_ref 逐帧 clamp 到关节软限位 `[q_min, q_max]` | 默认关，`positionBounds: true` 开启 |
+| **速度限制（附加）** | dq_ref 逐帧 clamp 到 `±DQ_MAX` | 默认关，`velocityBounds: true` 开启 |
+| **加加速度限制（附加）** | dq_ref 变化率受限 | 默认关，`jerkLimit: true` 开启 |
+
+> **安全底线：机械臂永远不允许乱飞。** 命令通道斜率限制 + 单一收口 + 看门狗 fail-soft + 固件兜底。
+
+### 4.6 参数调节
 
 | 方法 | 说明 |
 |---|---|
@@ -121,7 +334,7 @@ armBrowser.connected;                    // 浏览器版：连接状态 getter
 | `setPayload(mass, com=[0,0,0])` / `getPayload()` | 末端负载（质量 + 质心） |
 | `setInstallation({ base_rpy?, gravity? })` / `getInstallation()` | 安装姿态（基座 RPY 或重力向量） |
 
-### 4.6 外设设备
+### 4.7 外设设备
 
 统一入口 `arm.device(deviceId)`，方法路由到对应设备接口 `device.{deviceId}.{method}`。
 
@@ -146,13 +359,13 @@ await teach.getJoints(); await teach.getButtons();
 > 设备句柄统一懒创建并缓存（DeviceManager）。浏览器端 `device()` 返回 `DeviceProxy`
 > （同方法集，另含 `gripperTeleopEnter/Exit/Status` 夹爪遥操专用方法）。
 
-### 4.7 灵巧手便捷方法（Node 版专有，`hand*` 前缀）
+### 4.8 灵巧手便捷方法（Node 版专有，`hand*` 前缀）
 
 `handConnect(handType="right", handJoint="L10", canIface="can0")`、`handOpen()`、`handClose()`、
 `handSetGesture(gesture)`、`handFingerMove(pose)`、`handSetSpeed(speed)`、`handSetTorque(torque)`、
 `handGetState()`、`handClearFaults()`、`handListGestures()`、`handDisconnect()`。
 
-### 4.8 系统 / 设置
+### 4.9 系统 / 设置
 
 | 方法 | 说明 |
 |---|---|
@@ -164,7 +377,7 @@ await teach.getJoints(); await teach.getButtons();
 `getEndEffector/setEndEffector(config)`、`getCartesianLimits/setCartesianLimits(limits)`、
 `getCollisionConfig/setCollisionConfig(config)`。
 
-### 4.9 轨迹管理（服务端录制与管理）
+### 4.10 轨迹管理（服务端录制与管理）
 
 ```typescript
 await arm.startRecording(); await arm.getRecordingState();
@@ -175,7 +388,7 @@ await arm.deleteTrajectory('t1');
 await arm.getPlaybackState();
 ```
 
-### 4.10 末端设备管理
+### 4.11 末端设备管理
 
 ```typescript
 await arm.listDeviceTypes();
@@ -186,7 +399,7 @@ await arm.disconnectDevice('end_0');
 
 > 浏览器版 `connectDevice` 的 deviceId/canIface/config 收进一个 `opts` 对象参数。
 
-### 4.11 遥操（主从机械臂）
+### 4.12 遥操（主从机械臂）
 
 ```typescript
 await arm.enterTeleop('master');                                // 本臂采样发布
