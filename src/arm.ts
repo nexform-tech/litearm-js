@@ -8,7 +8,7 @@
 import type { Transport } from './transport';
 import { createTransport } from './transport';
 import { encodeRequest, decodeReply, encodeEstop, decodeState, initCodecSync } from './codec';
-import { rpcTopic, stateTopic, estopTopic } from './protocol';
+import { rpcTopic, stateTopic, estopTopic, commandTopic } from './protocol';
 import { DeviceManager, RemoteDevice } from './device';
 import type {
   ArmOptions,
@@ -55,6 +55,9 @@ export class Arm {
   private lastState: RobotState | null = null;
   private stateSubscriber: { drainLatest(): Uint8Array | null } | null = null;
   private devices: DeviceManager | null = null;
+  private commandTopic: string;
+  private clientId: string;
+  private seq = 0;
 
   /**
    * Create an Arm client.
@@ -65,6 +68,8 @@ export class Arm {
     this.rpcTopic = rpcTopic(armId);
     this.stateTopic = stateTopic(armId);
     this.estopTopic = estopTopic(armId);
+    this.commandTopic = commandTopic(armId);
+    this.clientId = `sdk-js-${Math.random().toString(36).slice(2, 10)}`;
 
     // Initialize codec synchronously
     initCodecSync();
@@ -74,7 +79,11 @@ export class Arm {
    * Connect to litearm-server.
    */
   async connect(): Promise<void> {
-    this.transport = await createTransport(this.options.endpoint);
+    if (this.options.transport) {
+      this.transport = this.options.transport;
+    } else {
+      this.transport = await createTransport(this.options.endpoint!);
+    }
 
     // Subscribe to state broadcasts
     this.stateSubscriber = await this.transport.sub(this.stateTopic);
@@ -437,6 +446,41 @@ export class Arm {
       max_cycles: options.max_cycles,
       duration_s: options.duration_s,
     });
+  }
+
+  // ── Direct MIT control ───────────────────────────────────────────────────
+
+  async sendMit(
+    kp: number[], kd: number[], qRef: number[],
+    dqRef: number[], tauFf: number[],
+  ): Promise<void> {
+    const frame = {
+      type: 'mit',
+      client_id: this.clientId,
+      seq: this.seq++,
+      kp, kd,
+      q_ref: qRef, dq_ref: dqRef, tau_ff: tauFf,
+      ts: Date.now() / 1000,
+    };
+    await this.transport!.pub(this.commandTopic, new TextEncoder().encode(JSON.stringify(frame)));
+  }
+
+  async setGuards(opts: {
+    slewLimit?: number | null; tauMax?: number | null; watchdogTimeout?: number | null;
+    positionBounds?: boolean | null; velocityBounds?: boolean | null; jerkLimit?: boolean | null;
+  } = {}): Promise<unknown> {
+    return this.rpc('set_guards', {
+      slew_limit: opts.slewLimit ?? null,
+      tau_max: opts.tauMax ?? null,
+      watchdog_timeout: opts.watchdogTimeout ?? null,
+      position_bounds: opts.positionBounds ?? null,
+      velocity_bounds: opts.velocityBounds ?? null,
+      jerk_limit: opts.jerkLimit ?? null,
+    });
+  }
+
+  async getGuards(): Promise<unknown> {
+    return this.rpc('get_guards');
   }
 
   // ── Hand control (灵巧手，便捷方法) ──────────────────────────────────

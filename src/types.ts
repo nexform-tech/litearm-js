@@ -3,6 +3,8 @@
  * @brief Type definitions for litearm-js SDK.
  */
 
+import type { Transport } from './transport';
+
 /**
  * Arm state enum values (matches pylitearm ArmState).
  */
@@ -151,10 +153,12 @@ export interface TrajectoryMeta {
  * Arm constructor options.
  */
 export interface ArmOptions {
-  /** Zenoh endpoint (e.g., "ws://192.168.1.100:7447") */
-  endpoint: string;
+  /** Zenoh endpoint (e.g., "ws://192.168.1.100:7447"). Ignored when `transport` is injected. */
+  endpoint?: string;
   /** Arm identifier (default: "armA") */
   armId?: string;
+  /** Injected transport (e.g. InProcTransport for offline tests). Skips createTransport(endpoint). */
+  transport?: Transport;
 }
 
 /**

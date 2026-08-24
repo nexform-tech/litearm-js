@@ -215,6 +215,102 @@ export class ZenohTransport implements Transport {
 }
 
 /**
+ * In-process subscriber for InProcTransport (offline tests).
+ */
+class InProcSubscriber implements Subscriber {
+  private queue: Uint8Array[] = [];
+  private latest: Uint8Array | null = null;
+
+  constructor(private callback?: (payload: Uint8Array) => void) {}
+
+  /** Called when InProcTransport.pub delivers a sample to this subscriber. */
+  onSample(payload: Uint8Array): void {
+    this.latest = payload;
+    this.queue.push(payload);
+    if (this.callback) {
+      this.callback(payload);
+    }
+  }
+
+  tryRecv(): Uint8Array | null {
+    return this.queue.shift() ?? null;
+  }
+
+  drainLatest(): Uint8Array | null {
+    let result: Uint8Array | null = null;
+    while (this.queue.length > 0) {
+      result = this.queue.shift()!;
+    }
+    return result ?? this.latest;
+  }
+
+  async undeclare(): Promise<void> {
+    // In-memory subscriber has nothing to clean up.
+  }
+}
+
+/**
+ * In-process transport (single process, no network).
+ *
+ * Satisfies the same Transport interface as ZenohTransport so the Arm client
+ * can be exercised offline (unit tests, CI). pub delivers to local subscribers
+ * on the same topic; query dispatches to a handler registered with
+ * declareQueryable (RPC server side).
+ */
+export class InProcTransport implements Transport {
+  private subscribers = new Map<string, InProcSubscriber[]>();
+  private queryables = new Map<string, (payload: Uint8Array) => Uint8Array>();
+  private closed = false;
+
+  /** Publish payload to topic — delivered synchronously to matching subscribers. */
+  async pub(topic: string, payload: Uint8Array): Promise<void> {
+    if (this.closed) throw new Error('Transport closed');
+    const subs = this.subscribers.get(topic);
+    if (subs) {
+      for (const s of subs) s.onSample(payload);
+    }
+  }
+
+  /** Subscribe to topic (mirrors Transport.sub; callback optional). */
+  async sub(
+    topic: string,
+    callback?: (payload: Uint8Array) => void,
+  ): Promise<Subscriber> {
+    if (this.closed) throw new Error('Transport closed');
+    const sub = new InProcSubscriber(callback);
+    const subs = this.subscribers.get(topic) ?? [];
+    subs.push(sub);
+    this.subscribers.set(topic, subs);
+    return sub;
+  }
+
+  /** Send a query and return the handler's reply bytes. */
+  async query(topic: string, payload: Uint8Array): Promise<Uint8Array> {
+    if (this.closed) throw new Error('Transport closed');
+    const handler = this.queryables.get(topic);
+    if (!handler) {
+      throw new Error(`No queryable handler registered for topic: ${topic}`);
+    }
+    return handler(payload);
+  }
+
+  /** Register an RPC handler (server side) for the given topic. */
+  declareQueryable(
+    topic: string,
+    handler: (payload: Uint8Array) => Uint8Array,
+  ): void {
+    this.queryables.set(topic, handler);
+  }
+
+  /** Close the transport and drop all local subscribers/handlers. */
+  async close(): Promise<void> {
+    this.closed = true;
+    this.subscribers.clear();
+    this.queryables.clear();
+  }
+}
+
+/**
  * Create a transport and connect.
  */
 export async function createTransport(
