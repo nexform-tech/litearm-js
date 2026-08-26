@@ -112,6 +112,7 @@ armBrowser.connected;                    // browser: connection-state getter
 | Method | Description |
 |---|---|
 | `movej(q_target, { speed=1.0, settle_s=1.0, max_cycles, allow_start_collision_recovery })` | Joint-space point-to-point |
+| `home({ speed=0.3, settle_s=0.5, max_cycles })` | Home all joints to zero — bypasses joint-limit and self-collision path checks |
 | `recoverJointLimits({ speed=0.05, settle_s=0.5, inset_rad=0.0, max_cycles })` | Slowly return out-of-limit joints to the safe boundary (requires server `allow_limit_recovery=True`) |
 | `movel(pose_goal, { speed=1.0, settle_s=0.8, max_cycles })` | Cartesian line move |
 | `movec(pose_via, pose_goal, { speed=1.0, settle_s=0.8, max_cycles })` | Circular arc move |
@@ -384,6 +385,7 @@ await teach.getJoints(); await teach.getButtons();
 | `getSystemStats()` | CPU / memory / board temperature / uptime |
 | `getLogs(page=1, size=50, search='')` | Paginated logs (positional arguments) |
 | `restartService()` | Restart the arm service |
+| `reconnect()` | Hardware reconnect — re-initialize motors from any state after arm hot-restart |
 
 Settings: `getJointLimits/setJointLimits(limits)`,
 `getZeroOffsets/setZeroOffsets(offsets)`, `getEndEffector/setEndEffector(config)`,

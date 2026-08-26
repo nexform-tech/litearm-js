@@ -105,6 +105,7 @@ armBrowser.connected;                    // 浏览器版：连接状态 getter
 | 方法 | 说明 |
 |---|---|
 | `movej(q_target, { speed=1.0, settle_s=1.0, max_cycles, allow_start_collision_recovery })` | 关节空间点到点 |
+| `home({ speed=0.3, settle_s=0.5, max_cycles })` | 回零：所有关节归零，绕开限位和自碰路径检查 |
 | `recoverJointLimits({ speed=0.05, settle_s=0.5, inset_rad=0.0, max_cycles })` | 越限关节缓慢回安全边界（需 server `allow_limit_recovery=True`） |
 | `movel(pose_goal, { speed=1.0, settle_s=0.8, max_cycles })` | 笛卡尔直线 |
 | `movec(pose_via, pose_goal, { speed=1.0, settle_s=0.8, max_cycles })` | 笛卡尔圆弧 |
@@ -372,6 +373,7 @@ await teach.getJoints(); await teach.getButtons();
 | `getSystemStats()` | CPU / 内存 / 板温 / 运行时长 |
 | `getLogs(page=1, size=50, search='')` | 分页日志（位置参数） |
 | `restartService()` | 重启 arm 服务 |
+| `reconnect()` | 硬件重连——从任意状态重新初始化电机，用于机械臂热重启后恢复 |
 
 设置：`getJointLimits/setJointLimits(limits)`、`getZeroOffsets/setZeroOffsets(offsets)`、
 `getEndEffector/setEndEffector(config)`、`getCartesianLimits/setCartesianLimits(limits)`、

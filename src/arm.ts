@@ -19,6 +19,7 @@ import type {
   Installation,
   JointTrajectory,
   MoveJOptions,
+  HomeOptions,
   MoveLOptions,
   MoveCOptions,
   MovePOptions,
@@ -172,6 +173,23 @@ export class Arm {
       settle_s: options.settle_s ?? 1.0,
       max_cycles: options.max_cycles,
       allow_start_collision_recovery: options.allow_start_collision_recovery,
+    });
+  }
+
+  /**
+   * Home all joints to zero position ([0, 0, 0, 0, 0, 0, 0]).
+   *
+   * Unlike movej, home() bypasses joint-limit and self-collision path safety
+   * checks.  Hardware-level fault / temperature / overspeed / following-error
+   * protection remains active.
+   *
+   * Default speed is 0.3 (slow) — homing is a recovery operation.
+   */
+  async home(options: HomeOptions = {}): Promise<boolean> {
+    return this.rpc('home', {
+      speed: options.speed ?? 0.3,
+      settle_s: options.settle_s ?? 0.5,
+      max_cycles: options.max_cycles,
     });
   }
 
@@ -625,6 +643,10 @@ export class Arm {
 
   /** Request restart of the arm service. */
   async restartService(): Promise<Record<string, unknown>> { return this.rpc('restart_service'); }
+
+  /** Reconnect hardware from any state — re-initialize motors after arm hot-restart.
+   *  Returns `{ state, success, error? }`. */
+  async reconnect(): Promise<Record<string, unknown>> { return this.rpc('reconnect'); }
 
   // ── Settings ────────────────────────────────────────────────────────────
 
