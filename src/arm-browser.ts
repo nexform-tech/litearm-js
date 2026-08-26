@@ -192,6 +192,15 @@ export class Arm {
     });
   }
 
+  /** Home all joints to zero — bypasses joint-limit & self-collision path checks. */
+  async home(ops: { speed?: number; settle_s?: number; max_cycles?: number } = {}): Promise<boolean> {
+    return this._rpc("home", {
+      speed: ops.speed ?? 0.3,
+      settle_s: ops.settle_s ?? 0.5,
+      ...(ops.max_cycles != null && { max_cycles: ops.max_cycles }),
+    });
+  }
+
   /** Move in a straight Cartesian line. */
   async movel(pose_goal: Pose, ops: MoveLOps = {}): Promise<boolean> {
     return this._rpc("movel", {

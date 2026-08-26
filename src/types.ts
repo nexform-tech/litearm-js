@@ -172,6 +172,15 @@ export interface MoveJOptions {
 }
 
 /**
+ * Home options.
+ */
+export interface HomeOptions {
+  speed?: number;
+  settle_s?: number;
+  max_cycles?: number;
+}
+
+/**
  * Recover joint limits options.
  */
 export interface RecoverJointLimitsOptions {

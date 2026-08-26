@@ -31,7 +31,7 @@ npx serve examples
 
 `index.html` 覆盖 litearm-js 的完整 API，是 SDK 功能对齐的直观演示：
 
-- 🎯 关节运动：`movej` / `recover_joint_limits`
+- 🎯 关节运动：`movej` / `home` / `recover_joint_limits`
 - 📐 笛卡尔运动：`movel` / `movec` / `movep`
 - 🧮 运动规划（纯计算，不动臂）：`fk` / `ik` / `plan_movel` / `plan_movec` / `plan_movep`
 - ⏯ 轨迹回放：`replay_trajectory` / `replay_joint_path` / `replay_timed_trajectory` / `play_trajectory`

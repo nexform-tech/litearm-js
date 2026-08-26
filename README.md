@@ -35,6 +35,9 @@ await arm.connect();
 // Move to a joint target
 await arm.movej([0, 0, 0, 0, 0, 0, 0], { speed: 0.5 });
 
+// Home all joints to zero (bypasses joint-limit & self-collision checks)
+await arm.home({ speed: 0.3 });
+
 // Read state (from the broadcast cache)
 const state = arm.getState();
 console.log('Joint angles:', state?.q);
@@ -66,6 +69,9 @@ await arm.close();
 ```typescript
 // Joint-space move (speed=1.0, settle_s=1.0; optional max_cycles / allow_start_collision_recovery)
 await arm.movej([0, 0, 0, 0, 0, 0, 0], { speed: 0.5 });
+
+// Home all joints to zero — bypasses joint-limit & self-collision path checks
+await arm.home({ speed: 0.3, settle_s: 0.5 });
 
 // Recover out-of-limit joints (slowly return them to the safe boundary)
 await arm.recoverJointLimits({ speed: 0.05, settle_s: 0.5, inset_rad: 0.0 });

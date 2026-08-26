@@ -86,7 +86,7 @@ input[type=number] { width: 80px; text-align: center; }
 
   <!-- ── 关节运动 ── -->
   <div class="card">
-    <h2 class="collapsible" onclick="toggleSection(this)">🎯 关节运动 (movej / recover_joint_limits)</h2>
+    <h2 class="collapsible" onclick="toggleSection(this)">🎯 关节运动 (movej / home / recover_joint_limits)</h2>
     <div class="collapse-body">
       <div class="jgrid" id="tg"></div>
       <div class="row" style="margin-top:10px">
@@ -95,6 +95,7 @@ input[type=number] { width: 80px; text-align: center; }
         <button id="bm" class="btn btn-m" onclick="doMovej()" disabled>movej</button>
         <button class="btn btn-p" onclick="setPreset([0,0.5,0,-1,0,0.6,0])">Home</button>
         <button class="btn btn-p" onclick="setPreset([0,0,0,0,0,0,0])">Zero</button>
+        <button class="btn btn-h" onclick="doHome()">回零 home()</button>
         <button class="btn btn-p" onclick="syncTargets()">⇠同步当前角</button>
         <label style="margin-left:8px">碰撞恢复</label><input type="checkbox" id="acr">
         <button class="btn btn-d" onclick="doRecoverLimits()">限位恢复</button>
@@ -511,6 +512,13 @@ window.doRecoverLimits = async () => {
   if (!arm) return;
   log("recover_joint_limits ...");
   try { const ok = await arm.recoverJointLimits({speed:0.05}); log("✓ ok=" + ok); }
+  catch(e) { log("✗ " + e.message, "e"); }
+};
+
+window.doHome = async () => {
+  if (!arm) return;
+  log("home() 回零中 ...");
+  try { const ok = await arm.home({speed:0.3, settle_s:0.5}); log("✓ ok=" + ok); }
   catch(e) { log("✗ " + e.message, "e"); }
 };
 

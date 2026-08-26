@@ -35,7 +35,7 @@ then click **Connect** to start controlling.
 `index.html` covers the complete litearm-js API — a hands-on demonstration of the
 SDK's feature set:
 
-- 🎯 Joint motion: `movej` / `recover_joint_limits`
+- 🎯 Joint motion: `movej` / `home` / `recover_joint_limits`
 - 📐 Cartesian motion: `movel` / `movec` / `movep`
 - 🧮 Motion planning (pure computation, arm does not move): `fk` / `ik` / `plan_movel` / `plan_movec` / `plan_movep`
 - ⏯ Trajectory replay: `replay_trajectory` / `replay_joint_path` / `replay_timed_trajectory` / `play_trajectory`

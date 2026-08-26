@@ -32,6 +32,9 @@ await arm.connect();
 // 移动到关节目标
 await arm.movej([0, 0, 0, 0, 0, 0, 0], { speed: 0.5 });
 
+// 回零：所有关节归零，绕开限位和自碰检查
+await arm.home({ speed: 0.3 });
+
 // 读取状态（广播缓存）
 const state = arm.getState();
 console.log('Joint angles:', state?.q);
@@ -63,6 +66,9 @@ await arm.close();
 ```typescript
 // 关节运动（speed=1.0, settle_s=1.0；可选 max_cycles / allow_start_collision_recovery）
 await arm.movej([0, 0, 0, 0, 0, 0, 0], { speed: 0.5 });
+
+// 回零：所有关节归零，绕开限位和自碰路径检查
+await arm.home({ speed: 0.3, settle_s: 0.5 });
 
 // 越限恢复（缓慢回到安全边界）
 await arm.recoverJointLimits({ speed: 0.05, settle_s: 0.5, inset_rad: 0.0 });
