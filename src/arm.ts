@@ -61,9 +61,10 @@ export class Arm {
 
   /**
    * Create an Arm client.
-   * @param options Arm options (endpoint, armId)
+   * @param options Arm options (endpoint, armId). If endpoint is omitted,
+   *   defaults to ``LITEARM_ENDPOINT`` env var, then ``tcp/127.0.0.1:7447``.
    */
-  constructor(private options: ArmOptions) {
+  constructor(private options: ArmOptions = {}) {
     const armId = options.armId || 'armA';
     this.rpcTopic = rpcTopic(armId);
     this.stateTopic = stateTopic(armId);
@@ -82,7 +83,10 @@ export class Arm {
     if (this.options.transport) {
       this.transport = this.options.transport;
     } else {
-      this.transport = await createTransport(this.options.endpoint!);
+      const endpoint = this.options.endpoint
+        || (typeof process !== 'undefined' && process.env?.LITEARM_ENDPOINT)
+        || 'tcp/127.0.0.1:7447';
+      this.transport = await createTransport(endpoint);
     }
 
     // Subscribe to state broadcasts
