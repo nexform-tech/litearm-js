@@ -504,6 +504,24 @@ export class Arm {
   /** Get installation. */
   async getInstallation(): Promise<{ base_rpy: number[]; gravity: number[] }> { return this._rpc("get_installation"); }
 
+  /** Set per-joint gravity calibration scale[7] (non-negative). Default 2s smooth
+   *  transition; transition_s<=0 applies instantly (offline/static only). */
+  async setGravityScale(scale: number[], transition_s = 2.0): Promise<{ scale: number[]; target: number[] | null }> {
+    return this._rpc("set_gravity_scale", { scale, transition_s });
+  }
+
+  /** Get current per-joint gravity calibration scale (mid-transition value + target while easing). */
+  async getGravityScale(): Promise<{ scale: number[]; target: number[] | null }> { return this._rpc("get_gravity_scale"); }
+
+  /** Persist current gravity scale to server yaml (effective after restart). */
+  async saveGravityScale(): Promise<Record<string, unknown>> { return this._rpc("save_gravity_scale"); }
+
+  /** Persist current payload (mass + com) to server yaml (effective after restart). */
+  async savePayload(): Promise<Record<string, unknown>> { return this._rpc("save_payload"); }
+
+  /** Persist current installation orientation (base_rpy) to server yaml. */
+  async saveInstallation(): Promise<Record<string, unknown>> { return this._rpc("save_installation"); }
+
   // ── Custom handlers (system / settings / trajectory) ──────────────────
 
   /** Get system stats (CPU, memory, temperature, uptime). */

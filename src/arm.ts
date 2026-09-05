@@ -17,6 +17,7 @@ import type {
   Gains,
   Payload,
   Installation,
+  GravityScale,
   JointTrajectory,
   MoveJOptions,
   HomeOptions,
@@ -629,6 +630,44 @@ export class Arm {
    */
   async getInstallation(): Promise<Installation> {
     return this.rpc('get_installation');
+  }
+
+  /**
+   * Set per-joint gravity calibration scale[7] (non-negative). Defaults to a
+   * 2s smooth linear transition so the compensation torque never jumps;
+   * transition_s <= 0 applies instantly (offline/static only).
+   */
+  async setGravityScale(scale: number[], transition_s = 2.0): Promise<GravityScale> {
+    return this.rpc('set_gravity_scale', { scale, transition_s });
+  }
+
+  /**
+   * Get current per-joint gravity calibration scale. During a transition the
+   * returned scale is the mid-transition value and target is set.
+   */
+  async getGravityScale(): Promise<GravityScale> {
+    return this.rpc('get_gravity_scale');
+  }
+
+  /**
+   * Persist the current gravity scale to the server yaml (effective after restart).
+   */
+  async saveGravityScale(): Promise<Record<string, unknown>> {
+    return this.rpc('save_gravity_scale');
+  }
+
+  /**
+   * Persist the current payload (mass + com) to the server yaml (effective after restart).
+   */
+  async savePayload(): Promise<Record<string, unknown>> {
+    return this.rpc('save_payload');
+  }
+
+  /**
+   * Persist the current installation orientation (base_rpy) to the server yaml.
+   */
+  async saveInstallation(): Promise<Record<string, unknown>> {
+    return this.rpc('save_installation');
   }
 
   // ── Custom handlers ─────────────────────────────────────────────────────

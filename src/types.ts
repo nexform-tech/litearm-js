@@ -117,6 +117,16 @@ export interface Installation {
 }
 
 /**
+ * Per-joint gravity calibration scale (multiplicative on the CAD gravity torque).
+ */
+export interface GravityScale {
+  /** 7 per-joint values currently in effect (mid-transition during easing). */
+  scale: number[];
+  /** Target during a transition; null/absent once stable. */
+  target: number[] | null;
+}
+
+/**
  * Joint trajectory frame.
  */
 export interface TrajectoryFrame {
